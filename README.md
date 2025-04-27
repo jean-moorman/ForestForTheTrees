@@ -14,8 +14,9 @@ Forest For The Trees (FFTT) is a nature-inspired Python application designed to 
 
 ### Core Agents
 - **Earth Agent**: Validates potential updates to foundational guidelines across all abstraction tiers (component, feature, functionality)
+- **Water Agent**: Coordinates propagation of validated guideline updates across the dependency graph, providing rich contextual information to affected downstream agents
 - **System Monitoring Agent**: Processes system metrics to give reports and recovery recommendations
-- **Refinement Agents**: Core agents that handle decision bottlenecks in the system operation
+- **Refinement Agents**: Subphase-specific manager agents that handle decision bottlenecks in the system operation
 
 ## Project Structure
 The project is organized into the following key directories:
@@ -24,7 +25,9 @@ The project is organized into the following key directories:
 - `tests/`: Test modules for all components
 - `examples/`: Example usage of key components
 
-## Earth Agent
+## Core Agent Mechanics
+
+### Earth Agent
 The Earth Agent is responsible for validating potential updates to foundational guidelines. For example, if an agent decides to revise its output, this is considered a guideline update and has to be validated by the Earth agent. 
 
 The Earth agent examines the before and after state of the guidelines to:
@@ -37,7 +40,7 @@ Earth agent validations happen at three abstraction tiers:
 - **Feature Tier**: Features within components (Phase 2a)  
 - **Functionality Tier**: Implementation details (Phase 3a)
 
-### Usage Example
+#### Usage Example
 ```python
 from resources.earth_agent import EarthAgent, AbstractionTier
 
@@ -57,6 +60,43 @@ if accepted:
     # Use the final_guideline
 else:
     print(f"Update rejected: {validation_details['validation_result']['explanation']}")
+```
+
+### Water Agent
+The Water Agent is responsible for coordinating the propagation of validated guideline updates throughout the system's dependency graph. It ensures that changes made by one agent flow coherently to all dependent downstream agents.
+
+The Water agent's primary responsibilities include:
+1. **Dependency Analysis**: Analyzing the system to identify all agents affected by an update
+2. **Rich Context Generation**: Creating detailed contextual information explaining why changes are happening and how they impact each specific agent
+3. **Adaptation Guidance**: Providing tailored, actionable guidance on how each agent should integrate the changes
+4. **Ordered Propagation**: Applying updates in the correct dependency order to ensure system coherence
+
+The Water agent uses LLM-powered capabilities for three critical phases:
+- **Propagation Analysis**: Determines which agents are affected and the optimal propagation strategy
+- **Context Generation**: Creates rich explanations of the changes and their implications
+- **Adaptation Guidance**: Develops tailored implementation recommendations for each affected agent
+
+#### Usage Example
+```python
+from resources.water_agent import WaterAgent
+from interface import get_earth_agent
+
+# Create Water agent (linked to Earth agent)
+earth_agent = get_earth_agent()
+water_agent = WaterAgent(earth_agent=earth_agent)
+
+# After Earth agent validates an update, propagate it to affected agents
+propagation_result = await water_agent.coordinate_propagation(
+    origin_agent_id="garden_planner",
+    validated_update=validated_update,
+    validation_result=validation_result
+)
+
+# Check propagation results
+if propagation_result.success:
+    print(f"Update successfully propagated to {propagation_result.metrics['affected_count']} agents")
+else:
+    print(f"Propagation had {len(propagation_result.failures)} failures")
 ```
 
 ## Installation
@@ -85,6 +125,9 @@ python -m pytest -xvs tests/test_earth_agent.py
 ```bash
 # Run Earth agent demo
 python examples/earth_agent_demo.py
+
+# Run Earth-Water integration example
+python examples/earth_water_integration.py
 ```
 
 ## Development
