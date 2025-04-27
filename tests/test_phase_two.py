@@ -8,12 +8,14 @@ from unittest.mock import MagicMock, patch, AsyncMock
 from phase_two import (
     ComponentDevelopmentState,
     ComponentDevelopmentContext,
+    PhaseTwo
+)
+from phase_two.agents import (
     ComponentTestCreationAgent,
     ComponentImplementationAgent,
     IntegrationTestAgent,
     SystemTestAgent,
-    DeploymentTestAgent,
-    PhaseTwo
+    DeploymentTestAgent
 )
 
 class TestComponentDevelopmentContext:
@@ -135,27 +137,8 @@ class TestPhaseTwo:
     
     async def test_sort_components_by_dependencies(self):
         """Test sorting components by dependencies"""
-        # Create mock dependencies
-        event_queue = AsyncMock()
-        state_manager = AsyncMock()
-        context_manager = AsyncMock()
-        cache_manager = AsyncMock()
-        metrics_manager = AsyncMock()
-        error_handler = AsyncMock()
-        phase_zero = AsyncMock()
-        phase_three = AsyncMock()
-        
-        # Create PhaseTwo instance
-        phase_two = PhaseTwo(
-            event_queue,
-            state_manager,
-            context_manager,
-            cache_manager,
-            metrics_manager,
-            error_handler,
-            phase_zero,
-            phase_three
-        )
+        # Import the function directly for testing
+        from phase_two.utils import sort_components_by_dependencies
         
         # Test components with dependencies
         components = [
@@ -176,37 +159,24 @@ class TestPhaseTwo:
             }
         ]
         
-        sorted_components = phase_two._sort_components_by_dependencies(components)
+        sorted_components = sort_components_by_dependencies(components)
         
         # Verify sorting
         assert sorted_components[0]["id"] == "comp1"  # No dependencies
         assert sorted_components[1]["id"] == "comp2"  # Depends on comp1
         assert sorted_components[2]["id"] == "comp3"  # Depends on comp1 and comp2
     
-    @patch('phase_two.Component')
+    @patch('phase_two.test_execution.Component')
     async def test_run_component_tests(self, mock_component):
         """Test running component tests"""
-        # Create mock dependencies
-        event_queue = AsyncMock()
-        state_manager = AsyncMock()
-        context_manager = AsyncMock()
-        cache_manager = AsyncMock()
-        metrics_manager = AsyncMock()
-        error_handler = AsyncMock()
-        phase_zero = AsyncMock()
-        phase_three = AsyncMock()
+        # Import TestExecutor for testing
+        from phase_two.test_execution import TestExecutor
         
-        # Create PhaseTwo instance
-        phase_two = PhaseTwo(
-            event_queue,
-            state_manager,
-            context_manager,
-            cache_manager,
-            metrics_manager,
-            error_handler,
-            phase_zero,
-            phase_three
-        )
+        # Create mock dependencies
+        metrics_manager = AsyncMock()
+        
+        # Create TestExecutor instance
+        test_executor = TestExecutor(metrics_manager)
         
         # Create a mock component
         component = mock_component.return_value
@@ -239,7 +209,7 @@ class TestPhaseTwo:
         
         # Run the tests
         with patch('random.random', return_value=0.99):  # Ensure all tests pass
-            result = await phase_two._run_component_tests(component, context)
+            result = await test_executor.run_component_tests(component, context)
         
         # Verify result
         assert result["total_tests"] == 2

@@ -64,6 +64,11 @@ from .monitoring import (
     ReliabilityMetrics
 )
 
+from .earth_agent import (
+    EarthAgent,
+    AbstractionTier
+)
+
 from .phase_coordinator import (
     PhaseState,
     PhaseType,
@@ -132,5 +137,9 @@ __all__ = [
     'PhaseContext',
     'PhaseTransitionHandler',
     'PhaseCoordinator',
-    'PhaseCoordinationIntegration'
+    'PhaseCoordinationIntegration',
+    
+    # Earth agent
+    'EarthAgent',
+    'AbstractionTier'
 ]

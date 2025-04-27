@@ -1,5 +1,5 @@
 #Root System Architect Agent has four prompts: 
-# 1. the Initial Core Data Flow Prompt which is used to analyze the output of the Garden Planner Agent and Environment Analysis Agent to determine the core data flow for the task 
+# 1. the Initial Core Data Flow Prompt which is used to analyze the output of the Garden Planner Agent and Garden Environment Analysis Agent to determine the core data flow for the task 
 # 2. the Core Data Flow Reflection Prompt which is used to refine the core data flow 
 # 3. the Core Data Flow Revision Prompt which is used post-reflection to validate refinement self-corrections
 # 4. the Core Data Flow Refinement Prompt which is used post-phase one refinement if identified as the root cause of errors by the Garden Foundation Refinement Agent 

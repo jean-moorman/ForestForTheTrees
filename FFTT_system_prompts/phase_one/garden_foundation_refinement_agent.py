@@ -46,7 +46,7 @@ Failures must be traced to exactly one of:
    - Feature scope misunderstanding
    - User intent misalignment
 
-2. Environmental Analysis Agent (Core Requirements)
+2. Garden Environmental Analysis Agent (Core Requirements)
    - Missing core requirements
    - Requirement misspecification
    - Critical requirement conflicts
@@ -71,7 +71,7 @@ Limited to the following specific actions:
    - Provides: Specific task clarification
 
 2. revise_environment
-   - Target: Environmental Analysis Agent
+   - Target: Garden Environmental Analysis Agent
    - When: Technical environment insufficient
    - Provides: Specific capability requirements
 

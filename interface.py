@@ -1193,6 +1193,7 @@ class AgentInterface(BaseInterface):
             error_handler,
             memory_monitor
         )
+        self.agent_id = agent_id
         self.agent_state = AgentState.READY
         self.model = model
         self.agent = Agent(
@@ -1210,6 +1211,9 @@ class AgentInterface(BaseInterface):
         self._metrics = InterfaceMetrics(event_queue, self._state_manager, self.interface_id)
         self._max_validation_attempts = 3
         self._event_queue = event_queue
+        
+        # Track guideline updates
+        self._guideline_updates = {}
     
     async def set_agent_state(self, new_state: AgentState, metadata: Optional[Dict[str, Any]] = None) -> None:
         """Update agent state and synchronize with resource state with initialization safeguard"""
@@ -1246,6 +1250,360 @@ class AgentInterface(BaseInterface):
                 except Exception as inner_e:
                     logger.error(f"Failed fallback setting state: {str(inner_e)}")
                     
+    async def apply_guideline_update(
+        self,
+        origin_agent_id: str,
+        propagation_context: Dict[str, Any],
+        update_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Apply a guideline update propagated from an upstream agent.
+        
+        Args:
+            origin_agent_id: ID of the agent that originated the update
+            propagation_context: Detailed context about the update's impact
+            update_data: The actual update data to apply
+            
+        Returns:
+            Dict with success status and details
+        """
+        logger.info(f"Applying guideline update from {origin_agent_id} to {self.agent_id}")
+        
+        try:
+            # Ensure the interface is initialized
+            await self.ensure_initialized()
+            
+            # Extract update ID
+            update_id = propagation_context.get("update_id", f"update_{datetime.now().isoformat()}")
+            
+            # Store the update information
+            await self._state_manager.set_state(
+                f"agent:{self.agent_id}:guideline_update:{update_id}",
+                {
+                    "origin_agent_id": origin_agent_id,
+                    "update_data": update_data,
+                    "propagation_context": propagation_context,
+                    "timestamp": datetime.now().isoformat(),
+                    "status": "received"
+                },
+                resource_type=ResourceType.STATE
+            )
+            
+            # Update internal tracking
+            self._guideline_updates[update_id] = {
+                "origin_agent_id": origin_agent_id,
+                "timestamp": datetime.now().isoformat(),
+                "status": "in_progress"
+            }
+            
+            # Analyze required adaptations
+            required_adaptations = propagation_context.get("required_adaptations", [])
+            
+            # Get current guideline
+            current_guideline = await self._state_manager.get_state(f"agent:{self.agent_id}:guideline")
+            if not current_guideline:
+                current_guideline = {}
+            
+            # Apply adaptations to current guideline
+            updated_guideline = await self._apply_adaptations(
+                current_guideline, 
+                update_data,
+                required_adaptations
+            )
+            
+            # Store updated guideline
+            await self._state_manager.set_state(
+                f"agent:{self.agent_id}:guideline",
+                updated_guideline,
+                resource_type=ResourceType.STATE
+            )
+            
+            # Update status
+            self._guideline_updates[update_id]["status"] = "applied"
+            await self._state_manager.set_state(
+                f"agent:{self.agent_id}:guideline_update:{update_id}",
+                {
+                    "origin_agent_id": origin_agent_id,
+                    "update_data": update_data,
+                    "propagation_context": propagation_context,
+                    "timestamp": datetime.now().isoformat(),
+                    "status": "applied"
+                },
+                resource_type=ResourceType.STATE
+            )
+            
+            # Emit update applied event
+            await self._event_queue.emit(
+                "guideline_update_applied",
+                {
+                    "agent_id": self.agent_id,
+                    "origin_agent_id": origin_agent_id,
+                    "update_id": update_id,
+                    "timestamp": datetime.now().isoformat()
+                }
+            )
+            
+            # Return success
+            return {
+                "success": True,
+                "agent_id": self.agent_id,
+                "update_id": update_id,
+                "timestamp": datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            logger.error(f"Error applying guideline update to {self.agent_id}: {str(e)}")
+            
+            # Update error state if update_id is available
+            if 'update_id' in locals():
+                await self._state_manager.set_state(
+                    f"agent:{self.agent_id}:guideline_update:{update_id}",
+                    {
+                        "origin_agent_id": origin_agent_id,
+                        "update_data": update_data,
+                        "propagation_context": propagation_context,
+                        "timestamp": datetime.now().isoformat(),
+                        "status": "error",
+                        "error": str(e)
+                    },
+                    resource_type=ResourceType.STATE
+                )
+                
+                # Update internal tracking
+                if update_id in self._guideline_updates:
+                    self._guideline_updates[update_id]["status"] = "error"
+                    self._guideline_updates[update_id]["error"] = str(e)
+            
+            # Return error
+            return {
+                "success": False,
+                "agent_id": self.agent_id,
+                "reason": f"Error applying guideline update: {str(e)}",
+                "timestamp": datetime.now().isoformat()
+            }
+    
+    async def _apply_adaptations(
+        self,
+        current_guideline: Dict[str, Any],
+        update_data: Dict[str, Any],
+        required_adaptations: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """
+        Apply required adaptations to the current guideline.
+        
+        Args:
+            current_guideline: The agent's current guideline
+            update_data: The update data from upstream
+            required_adaptations: List of required adaptations
+            
+        Returns:
+            The updated guideline
+        """
+        # Create a copy of the current guideline to avoid modifying the original
+        updated_guideline = current_guideline.copy() if current_guideline else {}
+        
+        # Apply each adaptation
+        for adaptation in required_adaptations:
+            adaptation_type = adaptation.get("type")
+            
+            if adaptation_type == "interface_adaptation":
+                # Update interface-related elements
+                if "interfaces" in update_data:
+                    updated_guideline["interfaces"] = update_data.get("interfaces")
+                    
+            elif adaptation_type == "behavioral_adaptation":
+                # Update behavior-related elements
+                if "behavior" in update_data:
+                    updated_guideline["behavior"] = update_data.get("behavior")
+                    
+            elif adaptation_type == "dependency_adaptation":
+                # Update dependencies
+                if "dependencies" in update_data:
+                    if "dependencies" not in updated_guideline:
+                        updated_guideline["dependencies"] = []
+                    
+                    # Merge dependencies, avoiding duplicates
+                    existing_deps = set(updated_guideline["dependencies"])
+                    for dep in update_data.get("dependencies", []):
+                        if dep not in existing_deps:
+                            updated_guideline["dependencies"].append(dep)
+                            
+            # Add more adaptation types as needed
+            
+        return updated_guideline
+    
+    async def verify_guideline_update(self, update_id: str) -> Dict[str, Any]:
+        """
+        Verify that a guideline update was applied correctly.
+        
+        Args:
+            update_id: ID of the update to verify
+            
+        Returns:
+            Dict with verification status and details
+        """
+        logger.info(f"Verifying guideline update {update_id} for {self.agent_id}")
+        
+        try:
+            # Get the update info
+            update_info = await self._state_manager.get_state(
+                f"agent:{self.agent_id}:guideline_update:{update_id}"
+            )
+            
+            if not update_info:
+                return {
+                    "verified": False,
+                    "errors": [f"Update {update_id} not found"],
+                    "timestamp": datetime.now().isoformat()
+                }
+            
+            # Check status
+            if update_info.get("status") != "applied":
+                return {
+                    "verified": False,
+                    "errors": [f"Update {update_id} not applied (status: {update_info.get('status')})"],
+                    "timestamp": datetime.now().isoformat()
+                }
+            
+            # Get current guideline
+            current_guideline = await self._state_manager.get_state(
+                f"agent:{self.agent_id}:guideline"
+            )
+            
+            # Extract propagation context
+            propagation_context = update_info.get("propagation_context", {})
+            
+            # Check that required adaptations were applied
+            required_adaptations = propagation_context.get("required_adaptations", [])
+            all_applied = await self._check_adaptations_applied(
+                current_guideline,
+                required_adaptations
+            )
+            
+            if all_applied:
+                # Update verification status
+                if update_id in self._guideline_updates:
+                    self._guideline_updates[update_id]["verified"] = True
+                
+                return {
+                    "verified": True,
+                    "agent_id": self.agent_id,
+                    "update_id": update_id,
+                    "timestamp": datetime.now().isoformat()
+                }
+            else:
+                return {
+                    "verified": False,
+                    "errors": ["Required adaptations not fully applied"],
+                    "timestamp": datetime.now().isoformat()
+                }
+                
+        except Exception as e:
+            logger.error(f"Error verifying update {update_id} for {self.agent_id}: {str(e)}")
+            
+            return {
+                "verified": False,
+                "errors": [f"Verification error: {str(e)}"],
+                "timestamp": datetime.now().isoformat()
+            }
+    
+    async def _check_adaptations_applied(
+        self,
+        current_guideline: Dict[str, Any],
+        required_adaptations: List[Dict[str, Any]]
+    ) -> bool:
+        """
+        Check if all required adaptations have been applied to the guideline.
+        
+        Args:
+            current_guideline: The agent's current guideline
+            required_adaptations: List of required adaptations
+            
+        Returns:
+            True if all adaptations are applied, False otherwise
+        """
+        # Simply return True for now - actual implementation would check each adaptation
+        return True
+    
+    async def check_update_readiness(
+        self,
+        origin_agent_id: str,
+        propagation_context: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Check if this agent is ready to receive a guideline update.
+        
+        Args:
+            origin_agent_id: ID of the agent that originated the update
+            propagation_context: Detailed context about the update's impact
+            
+        Returns:
+            Dict with readiness status and details
+        """
+        logger.info(f"Checking update readiness from {origin_agent_id} for {self.agent_id}")
+        
+        try:
+            # Extract update ID
+            update_id = propagation_context.get("update_id", f"check_{datetime.now().isoformat()}")
+            
+            # Check if agent is in a valid state to receive updates
+            agent_state = self.agent_state
+            if agent_state not in [AgentState.READY, AgentState.COMPLETE]:
+                return {
+                    "ready": False,
+                    "concerns": [{
+                        "type": "agent_state",
+                        "description": f"Agent is in {agent_state} state, which does not allow updates"
+                    }],
+                    "timestamp": datetime.now().isoformat()
+                }
+            
+            # Check if required adaptations can be applied
+            required_adaptations = propagation_context.get("required_adaptations", [])
+            adaptation_concerns = await self._check_adaptation_concerns(required_adaptations)
+            
+            if adaptation_concerns:
+                return {
+                    "ready": False,
+                    "concerns": adaptation_concerns,
+                    "timestamp": datetime.now().isoformat()
+                }
+            
+            # Agent is ready to receive the update
+            return {
+                "ready": True,
+                "concerns": [],
+                "timestamp": datetime.now().isoformat()
+            }
+            
+        except Exception as e:
+            logger.error(f"Error checking update readiness for {self.agent_id}: {str(e)}")
+            
+            return {
+                "ready": False,
+                "concerns": [{
+                    "type": "system_error",
+                    "description": f"Error checking readiness: {str(e)}"
+                }],
+                "timestamp": datetime.now().isoformat()
+            }
+    
+    async def _check_adaptation_concerns(
+        self,
+        required_adaptations: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """
+        Check if there are any concerns about applying the required adaptations.
+        
+        Args:
+            required_adaptations: List of required adaptations
+            
+        Returns:
+            List of concerns, empty if none
+        """
+        # For now, just return empty list - actual implementation would check each adaptation
+        return []
+            
     async def process_with_validation(
             self,
             conversation: str,
@@ -1465,11 +1823,100 @@ class FeatureInterface(BaseInterface):
     def get_feature_state(self, key: str) -> Optional[Any]:
         return self._feature_state.get(key)
 
+class FunctionalityInterface(BaseInterface):
+    """Interface for individual functionalities within a feature."""
+    
+    def __init__(self, functionality_id: str):
+        super().__init__(f"functionality:{functionality_id}")
+        self._functionality_state: Dict[str, Any] = {}
+        
+    def set_functionality_state(self, key: str, value: Any) -> None:
+        """Set a state value for this functionality."""
+        self._functionality_state[key] = value
+        
+    def get_functionality_state(self, key: str) -> Optional[Any]:
+        """Get a state value for this functionality."""
+        return self._functionality_state.get(key)
+    
+    def add_dependency(self, dependency: 'FunctionalityInterface') -> None:
+        """Add a dependency relationship to another functionality."""
+        # Basic implementation - to be enhanced with proper dependency tracking
+        dependency_id = dependency.interface_id
+        dependency_list = self._functionality_state.get("dependencies", set())
+        if not isinstance(dependency_list, set):
+            dependency_list = set(dependency_list) if dependency_list else set()
+        dependency_list.add(dependency_id)
+        self._functionality_state["dependencies"] = dependency_list
+    
+    def validate(self) -> bool:
+        """Validate this functionality's state and relationships."""
+        # Basic validation that can be overridden by derived classes
+        # Just check for critical state properties
+        return True
+
 class ComponentInterface(BaseInterface):
     def __init__(self, component_id: str, event_queue: EventQueue):
         super().__init__(f"component:{component_id}", event_queue)
         self._features: Set[str] = set()
         
+# Global instances of Earth and Water agents
+_earth_agent = None
+_water_agent = None
+
+def get_earth_agent():
+    """Get the singleton Earth agent instance."""
+    global _earth_agent
+    if _earth_agent is None:
+        # Import here to avoid circular imports
+        from resources.earth_agent import EarthAgent
+        
+        # Create resources for Earth agent
+        event_queue = EventQueue()
+        asyncio.create_task(event_queue.start())
+        
+        state_manager = StateManager(event_queue)
+        context_manager = AgentContextManager(event_queue)
+        cache_manager = CacheManager(event_queue)
+        metrics_manager = MetricsManager(event_queue)
+        error_handler = ErrorHandler(event_queue)
+        memory_monitor = MemoryMonitor(event_queue)
+        
+        # Create Earth agent
+        _earth_agent = EarthAgent(
+            event_queue=event_queue,
+            state_manager=state_manager,
+            context_manager=context_manager,
+            cache_manager=cache_manager,
+            metrics_manager=metrics_manager,
+            error_handler=error_handler,
+            memory_monitor=memory_monitor
+        )
+    
+    return _earth_agent
+
+def get_water_agent():
+    """Get the singleton Water agent instance."""
+    global _water_agent, _earth_agent
+    if _water_agent is None:
+        # Import here to avoid circular imports
+        from resources.water_agent import WaterAgent
+        
+        # Ensure Earth agent exists
+        earth_agent = get_earth_agent()
+        
+        # Create Water agent using Earth agent's resources
+        _water_agent = WaterAgent(
+            event_queue=earth_agent._event_queue,
+            state_manager=earth_agent._state_manager,
+            context_manager=earth_agent._context_manager,
+            cache_manager=earth_agent._cache_manager,
+            metrics_manager=earth_agent._metrics_manager,
+            error_handler=earth_agent._error_handler,
+            memory_monitor=earth_agent._memory_monitor,
+            earth_agent=earth_agent
+        )
+    
+    return _water_agent
                 
 
 class TestAgent(AgentInterface):

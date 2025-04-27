@@ -40,6 +40,9 @@ class DependencyType(Enum):
     PRIMARY = auto()
     SECONDARY = auto()
     AUXILIARY = auto()
+    COMPONENT_TO_FEATURE = auto()
+    FEATURE_TO_FUNCTIONALITY = auto()
+    HIERARCHICAL = auto()  # Special type for hierarchical dependencies
 
 class BranchState(Enum):
     ACTIVE = auto()
@@ -67,6 +70,7 @@ class DependencyInterface(BaseInterface):
         self._dependency_graph: Dict[str, Set[str]] = defaultdict(set)
         self._reverse_graph: Dict[str, Set[str]] = defaultdict(set)
         self._holding_points: Dict[str, Set[str]] = defaultdict(set)
+        self._validation_errors: List[Dict[str, Any]] = []
         
         # Register with resource manager
         self._resource_manager.set_state(
@@ -96,10 +100,35 @@ class DependencyInterface(BaseInterface):
             }
         )
 
-    def add_dependency(self, dependent: str, dependency: str) -> None:
+    def add_node(self, node_id: str) -> None:
+        """Add a node to the dependency graph without any dependencies."""
+        if node_id not in self._dependency_graph:
+            self._dependency_graph[node_id] = set()
+            self._reverse_graph[node_id] = set()
+            
+            # Update state in resource manager
+            self._resource_manager.set_state(
+                f"dependency:{self.interface_id}:graph:{node_id}",
+                []
+            )
+            
+            # Emit node added event
+            self._resource_manager.emit_event(
+                "dependency_node_added",
+                {
+                    "interface_id": self.interface_id,
+                    "node_id": node_id
+                }
+            )
+        
+    def add_dependency(self, dependent: str, dependency: str, dep_type: DependencyType = DependencyType.SECONDARY) -> None:
         """Add a dependency relationship to the DAG."""
-        # Check for cycles before adding
-        if self._would_create_cycle(dependent, dependency):
+        # Ensure both nodes exist
+        self.add_node(dependent)
+        self.add_node(dependency)
+        
+        # Check for cycles before adding unless it's a hierarchical dependency
+        if dep_type != DependencyType.HIERARCHICAL and self._would_create_cycle(dependent, dependency):
             raise ValueError(f"Adding dependency {dependency} would create a cycle")
             
         self._dependency_graph[dependent].add(dependency)
@@ -111,13 +140,51 @@ class DependencyInterface(BaseInterface):
             list(self._dependency_graph[dependent])
         )
         
+        # Store the dependency type
+        self._resource_manager.set_state(
+            f"dependency:{self.interface_id}:type:{dependent}:{dependency}",
+            dep_type.name
+        )
+        
         # Emit dependency added event
         self._resource_manager.emit_event(
             "dependency_added",
             {
                 "interface_id": self.interface_id,
                 "dependent": dependent,
-                "dependency": dependency
+                "dependency": dependency,
+                "dependency_type": dep_type.name
+            }
+        )
+        
+    def get_dependencies(self, component_id: str) -> List[str]:
+        """Get all dependencies for a component."""
+        return list(self._dependency_graph.get(component_id, set()))
+        
+    def add_hierarchical_dependency(self, parent: str, child: str, hierarchy_type: DependencyType) -> None:
+        """Add a hierarchical dependency (component->feature or feature->functionality)."""
+        # This is a special type of dependency that might appear to create cycles
+        # in the normal dependency graph but is actually a hierarchical relationship
+        if hierarchy_type not in (DependencyType.COMPONENT_TO_FEATURE, DependencyType.FEATURE_TO_FUNCTIONALITY):
+            raise ValueError(f"Invalid hierarchy type: {hierarchy_type}. Must be COMPONENT_TO_FEATURE or FEATURE_TO_FUNCTIONALITY")
+            
+        # Add with hierarchical flag to bypass cycle detection
+        self.add_dependency(parent, child, dep_type=DependencyType.HIERARCHICAL)
+        
+        # Also store the specific hierarchy type
+        self._resource_manager.set_state(
+            f"dependency:{self.interface_id}:hierarchy:{parent}:{child}",
+            hierarchy_type.name
+        )
+        
+        # Emit a specific hierarchical dependency event
+        self._resource_manager.emit_event(
+            "hierarchical_dependency_added",
+            {
+                "interface_id": self.interface_id,
+                "parent": parent,
+                "child": child,
+                "hierarchy_type": hierarchy_type.name
             }
         )
 
@@ -289,18 +356,36 @@ class DependencyInterface(BaseInterface):
         if not super().validate_dependencies():
             return False
             
+        # Clear previous validation errors
+        self._validation_errors = []
+        
         # Validate dependency graph
         for dependent, dependencies in self._dependency_graph.items():
             for dependency in dependencies:
                 # Check for cycles
                 if self._would_create_cycle(dependent, dependency):
-                    logger.error(f"Cycle detected in dependency graph: {dependent} -> {dependency}")
+                    error = {
+                        "error_type": "cycle_detected",
+                        "dependent": dependent,
+                        "dependency": dependency,
+                        "message": f"Cycle detected in dependency graph: {dependent} -> {dependency}"
+                    }
+                    self._validation_errors.append(error)
+                    logger.error(error["message"])
                     return False
                     
                 # Validate dependency states
                 dep_state = self._resource_manager.get_state(f"interface:{dependency}:state")
                 if dep_state not in (ResourceState.ACTIVE, ResourceState.PROPAGATING):
-                    logger.error(f"Invalid dependency state: {dependency} -> {dep_state}")
+                    error = {
+                        "error_type": "invalid_dependency_state",
+                        "dependent": dependent,
+                        "dependency": dependency,
+                        "state": dep_state,
+                        "message": f"Invalid dependency state: {dependency} -> {dep_state}"
+                    }
+                    self._validation_errors.append(error)
+                    logger.error(error["message"])
                     return False
                     
         # Validate development paths
@@ -308,16 +393,348 @@ class DependencyInterface(BaseInterface):
             # Check component existence
             for component in path.components:
                 if not self._resource_manager.verify_resource_health(f"interface:{component}"):
-                    logger.error(f"Unhealthy component in path {path_id}: {component}")
+                    error = {
+                        "error_type": "unhealthy_component",
+                        "path_id": path_id,
+                        "component": component,
+                        "message": f"Unhealthy component in path {path_id}: {component}"
+                    }
+                    self._validation_errors.append(error)
+                    logger.error(error["message"])
                     return False
                     
             # Validate holding points
             for holding_point in path.holding_points:
                 if holding_point not in path.components:
-                    logger.error(f"Invalid holding point in path {path_id}: {holding_point}")
+                    error = {
+                        "error_type": "invalid_holding_point",
+                        "path_id": path_id,
+                        "holding_point": holding_point,
+                        "message": f"Invalid holding point in path {path_id}: {holding_point}"
+                    }
+                    self._validation_errors.append(error)
+                    logger.error(error["message"])
                     return False
                     
         return True
+                    
+    def get_validation_errors(self) -> List[Dict[str, Any]]:
+        """Get all validation errors from the last validation run."""
+        return self._validation_errors.copy()
+        
+    def validate_data_flow(self, data_flow: Dict[str, Any]) -> Tuple[bool, List[Dict[str, Any]]]:
+        """
+        Validate data flow structure in real-time.
+        
+        Args:
+            data_flow: The data flow structure to validate
+            
+        Returns:
+            Tuple of (is_valid, errors)
+        """
+        errors = []
+        
+        # Verify data flow basic structure
+        if not isinstance(data_flow, dict):
+            errors.append({
+                "error_type": "invalid_data_flow_structure",
+                "message": "Data flow must be a dictionary"
+            })
+            return False, errors
+            
+        # Verify data flows
+        if "data_flows" not in data_flow:
+            errors.append({
+                "error_type": "missing_data_flows",
+                "message": "Data flow must contain 'data_flows' key"
+            })
+            return False, errors
+            
+        flows = data_flow.get("data_flows", [])
+        
+        # Track source-destination pairs to detect duplicates
+        flow_pairs = set()
+        
+        # Check each flow
+        for i, flow in enumerate(flows):
+            # Check required fields
+            required_fields = ["source", "destination", "data_type"]
+            for field in required_fields:
+                if field not in flow:
+                    errors.append({
+                        "error_type": "missing_field",
+                        "flow_index": i,
+                        "field": field,
+                        "message": f"Flow missing required field: {field}"
+                    })
+            
+            # Skip further validation if required fields are missing
+            if any(field not in flow for field in required_fields):
+                continue
+                
+            # Check for self-reference
+            if flow["source"] == flow["destination"]:
+                errors.append({
+                    "error_type": "self_reference",
+                    "flow_index": i,
+                    "source": flow["source"],
+                    "message": f"Flow cannot have same source and destination: {flow['source']}"
+                })
+                
+            # Check for duplicate flows
+            flow_pair = (flow["source"], flow["destination"])
+            if flow_pair in flow_pairs:
+                errors.append({
+                    "error_type": "duplicate_flow",
+                    "flow_index": i,
+                    "source": flow["source"],
+                    "destination": flow["destination"],
+                    "message": f"Duplicate flow from {flow['source']} to {flow['destination']}"
+                })
+            flow_pairs.add(flow_pair)
+            
+        # Check for cycles in the data flow graph
+        graph = defaultdict(set)
+        for flow in flows:
+            if "source" in flow and "destination" in flow:
+                graph[flow["source"]].add(flow["destination"])
+                
+        # Detect cycles using DFS
+        visited = set()
+        recursion_stack = set()
+        
+        def has_cycle(node):
+            visited.add(node)
+            recursion_stack.add(node)
+            
+            for neighbor in graph[node]:
+                if neighbor not in visited:
+                    if has_cycle(neighbor):
+                        return True
+                elif neighbor in recursion_stack:
+                    errors.append({
+                        "error_type": "data_flow_cycle",
+                        "cycle_node": node,
+                        "cycle_next": neighbor,
+                        "message": f"Cycle detected in data flow: {node} -> {neighbor}"
+                    })
+                    return True
+                    
+            recursion_stack.remove(node)
+            return False
+            
+        for node in graph:
+            if node not in visited:
+                if has_cycle(node):
+                    break
+                    
+        # Return validation result
+        return len(errors) == 0, errors
+        
+    def validate_structural_breakdown(self, structure: Dict[str, Any]) -> Tuple[bool, List[Dict[str, Any]]]:
+        """
+        Validate structural breakdown in real-time.
+        
+        Args:
+            structure: The structural breakdown to validate
+            
+        Returns:
+            Tuple of (is_valid, errors)
+        """
+        errors = []
+        
+        # Verify structure basic format
+        if not isinstance(structure, dict):
+            errors.append({
+                "error_type": "invalid_structure_format",
+                "message": "Structure must be a dictionary"
+            })
+            return False, errors
+            
+        # Verify components are present
+        if "ordered_components" not in structure:
+            errors.append({
+                "error_type": "missing_components",
+                "message": "Structure must contain 'ordered_components' key"
+            })
+            return False, errors
+            
+        components = structure.get("ordered_components", [])
+        
+        # Track component names to detect duplicates
+        component_names = set()
+        component_sequence_numbers = set()
+        
+        # Check each component
+        for i, component in enumerate(components):
+            # Check required fields
+            required_fields = ["name", "sequence_number", "dependencies"]
+            for field in required_fields:
+                if field not in component:
+                    errors.append({
+                        "error_type": "missing_field",
+                        "component_index": i,
+                        "field": field,
+                        "message": f"Component missing required field: {field}"
+                    })
+            
+            # Skip further validation if required fields are missing
+            if any(field not in component for field in required_fields):
+                continue
+                
+            # Check for duplicate names
+            if component["name"] in component_names:
+                errors.append({
+                    "error_type": "duplicate_component_name",
+                    "component_index": i,
+                    "name": component["name"],
+                    "message": f"Duplicate component name: {component['name']}"
+                })
+            component_names.add(component["name"])
+            
+            # Check for duplicate sequence numbers
+            if component["sequence_number"] in component_sequence_numbers:
+                errors.append({
+                    "error_type": "duplicate_sequence_number",
+                    "component_index": i,
+                    "sequence_number": component["sequence_number"],
+                    "message": f"Duplicate sequence number: {component['sequence_number']}"
+                })
+            component_sequence_numbers.add(component["sequence_number"])
+            
+            # Check dependencies exist
+            if "dependencies" in component and "required" in component["dependencies"]:
+                for dep in component["dependencies"]["required"]:
+                    if dep not in component_names and i > 0:  # Allow forward references for first component
+                        errors.append({
+                            "error_type": "undefined_dependency",
+                            "component_index": i,
+                            "component_name": component["name"],
+                            "dependency": dep,
+                            "message": f"Component {component['name']} depends on undefined component: {dep}"
+                        })
+        
+        # Check for cycles in dependency graph
+        graph = defaultdict(set)
+        for component in components:
+            if "name" in component and "dependencies" in component and "required" in component["dependencies"]:
+                name = component["name"]
+                for dep in component["dependencies"]["required"]:
+                    graph[name].add(dep)
+                    
+        # Detect cycles using DFS
+        visited = set()
+        recursion_stack = set()
+        
+        def has_cycle(node):
+            visited.add(node)
+            recursion_stack.add(node)
+            
+            for neighbor in graph[node]:
+                if neighbor not in visited:
+                    if has_cycle(neighbor):
+                        return True
+                elif neighbor in recursion_stack:
+                    errors.append({
+                        "error_type": "dependency_cycle",
+                        "cycle_node": node,
+                        "cycle_next": neighbor,
+                        "message": f"Cycle detected in component dependencies: {node} -> {neighbor}"
+                    })
+                    return True
+                    
+            recursion_stack.remove(node)
+            return False
+            
+        for node in graph:
+            if node not in visited:
+                if has_cycle(node):
+                    break
+                    
+        # Return validation result
+        return len(errors) == 0, errors
+        
+    def validate_cross_consistency(self, data_flow: Dict[str, Any], structure: Dict[str, Any]) -> Tuple[bool, List[Dict[str, Any]]]:
+        """
+        Validate cross-consistency between data flow and structural breakdown.
+        
+        Args:
+            data_flow: The data flow structure to validate
+            structure: The structural breakdown to validate
+            
+        Returns:
+            Tuple of (is_valid, errors)
+        """
+        errors = []
+        
+        # Extract components from structure
+        components = []
+        if isinstance(structure, dict) and "ordered_components" in structure:
+            for comp in structure.get("ordered_components", []):
+                if "name" in comp:
+                    components.append(comp["name"])
+        
+        component_set = set(components)
+        
+        # Extract flows from data flow
+        flows = []
+        if isinstance(data_flow, dict) and "data_flows" in data_flow:
+            flows = data_flow.get("data_flows", [])
+            
+        # Check each flow references valid components
+        for i, flow in enumerate(flows):
+            if "source" in flow and flow["source"] != "external" and flow["source"] not in component_set:
+                errors.append({
+                    "error_type": "flow_invalid_source",
+                    "flow_index": i,
+                    "source": flow["source"],
+                    "message": f"Flow references non-existent source component: {flow['source']}"
+                })
+                
+            if "destination" in flow and flow["destination"] != "external" and flow["destination"] not in component_set:
+                errors.append({
+                    "error_type": "flow_invalid_destination",
+                    "flow_index": i,
+                    "destination": flow["destination"],
+                    "message": f"Flow references non-existent destination component: {flow['destination']}"
+                })
+                
+        # Verify component dependencies align with data flows
+        flow_dependencies = defaultdict(set)
+        for flow in flows:
+            if "source" in flow and "destination" in flow:
+                if flow["source"] != "external" and flow["destination"] != "external":
+                    flow_dependencies[flow["destination"]].add(flow["source"])
+                    
+        for i, comp in enumerate(structure.get("ordered_components", [])):
+            if "name" not in comp or "dependencies" not in comp or "required" not in comp["dependencies"]:
+                continue
+                
+            comp_name = comp["name"]
+            comp_deps = set(comp["dependencies"]["required"])
+            flow_deps = flow_dependencies.get(comp_name, set())
+            
+            # Check if data flow dependencies are reflected in structural dependencies
+            for flow_dep in flow_deps:
+                if flow_dep not in comp_deps:
+                    errors.append({
+                        "error_type": "missing_structural_dependency",
+                        "component_name": comp_name,
+                        "data_flow_dependency": flow_dep,
+                        "message": f"Component {comp_name} has data flow from {flow_dep} but missing structural dependency"
+                    })
+                    
+            # Check if structural dependencies have corresponding data flows
+            for struct_dep in comp_deps:
+                if struct_dep not in flow_deps and struct_dep in component_set:
+                    errors.append({
+                        "error_type": "missing_data_flow",
+                        "component_name": comp_name,
+                        "structural_dependency": struct_dep,
+                        "message": f"Component {comp_name} depends on {struct_dep} but no data flow exists"
+                    })
+        
+        return len(errors) == 0, errors
 
 def register_dependency_metrics(dependency_interface: DependencyInterface) -> None:
     """Register monitoring metrics for dependency interface."""
@@ -356,3 +773,222 @@ def monitor_dependency_changes(dependency_interface: DependencyInterface) -> Non
     resource_manager.subscribe_to_events("dependency_added", dependency_change_callback)
     resource_manager.subscribe_to_events("dependency_removed", dependency_change_callback)
     resource_manager.subscribe_to_events("dependency_type_changed", dependency_change_callback)
+    
+class DependencyValidator:
+    """
+    Orchestrates the validation process for data flow and structural breakdown.
+    
+    Handles the sequential validation workflow where:
+    1. Data flow is validated first
+    2. Structural breakdown is validated next
+    3. Cross-consistency is validated last
+    
+    Provides feedback to phase-specific agents for corrective action.
+    """
+    
+    def __init__(self, resource_manager: StateManager):
+        self.resource_manager = resource_manager
+        self.dependency_interface = DependencyInterface("validator")
+        self._validation_history = []
+        self._data_flow = None
+        self._structural_breakdown = None
+        
+    def record_validation_event(self, event_type: str, target: str, status: str, errors: List[Dict[str, Any]] = None) -> None:
+        """Record a validation event for history and metrics tracking."""
+        event = {
+            "event_type": event_type,
+            "target": target,
+            "status": status,
+            "timestamp": datetime.now().isoformat(),
+            "errors": errors or []
+        }
+        
+        self._validation_history.append(event)
+        
+        # Emit validation event
+        self.resource_manager.emit_event(
+            f"dependency_validation_{event_type}",
+            {
+                "target": target,
+                "status": status,
+                "timestamp": datetime.now().isoformat(),
+                "error_count": len(errors or [])
+            }
+        )
+        
+    async def validate_data_flow(self, data_flow: Dict[str, Any], phase: str = "one") -> Tuple[bool, List[Dict[str, Any]]]:
+        """
+        Validate data flow and record the result.
+        
+        Args:
+            data_flow: The data flow structure to validate
+            phase: The phase of validation (one, two, three)
+            
+        Returns:
+            Tuple of (is_valid, errors)
+        """
+        # Store data flow for cross-validation
+        self._data_flow = data_flow
+        
+        # Validate data flow
+        is_valid, errors = self.dependency_interface.validate_data_flow(data_flow)
+        
+        # Record validation event
+        self.record_validation_event(
+            "data_flow",
+            f"phase_{phase}",
+            "success" if is_valid else "failure",
+            errors
+        )
+        
+        return is_valid, errors
+        
+    async def validate_structural_breakdown(self, structure: Dict[str, Any], phase: str = "one") -> Tuple[bool, List[Dict[str, Any]]]:
+        """
+        Validate structural breakdown and record the result.
+        
+        Args:
+            structure: The structural breakdown to validate
+            phase: The phase of validation (one, two, three)
+            
+        Returns:
+            Tuple of (is_valid, errors)
+        """
+        # Store structural breakdown for cross-validation
+        self._structural_breakdown = structure
+        
+        # Validate structural breakdown
+        is_valid, errors = self.dependency_interface.validate_structural_breakdown(structure)
+        
+        # Record validation event
+        self.record_validation_event(
+            "structural_breakdown",
+            f"phase_{phase}",
+            "success" if is_valid else "failure",
+            errors
+        )
+        
+        return is_valid, errors
+        
+    async def validate_cross_consistency(self, phase: str = "one") -> Tuple[bool, List[Dict[str, Any]]]:
+        """
+        Validate cross-consistency between data flow and structural breakdown.
+        
+        Args:
+            phase: The phase of validation (one, two, three)
+            
+        Returns:
+            Tuple of (is_valid, errors)
+        """
+        # Ensure both data flow and structural breakdown are available
+        if self._data_flow is None or self._structural_breakdown is None:
+            return False, [{
+                "error_type": "missing_validation_data",
+                "message": "Both data flow and structural breakdown must be validated first"
+            }]
+            
+        # Validate cross-consistency
+        is_valid, errors = self.dependency_interface.validate_cross_consistency(
+            self._data_flow,
+            self._structural_breakdown
+        )
+        
+        # Record validation event
+        self.record_validation_event(
+            "cross_consistency",
+            f"phase_{phase}",
+            "success" if is_valid else "failure",
+            errors
+        )
+        
+        return is_valid, errors
+        
+    async def get_validation_summary(self) -> Dict[str, Any]:
+        """Get a summary of validation results."""
+        return {
+            "data_flow_validated": self._data_flow is not None,
+            "structural_breakdown_validated": self._structural_breakdown is not None,
+            "cross_consistency_validated": any(event["event_type"] == "cross_consistency" for event in self._validation_history),
+            "validation_history": self._validation_history,
+            "latest_validation_time": self._validation_history[-1]["timestamp"] if self._validation_history else None,
+            "overall_status": "success" if all(event["status"] == "success" for event in self._validation_history) else "failure"
+        }
+        
+    async def determine_responsible_agent(self, errors: List[Dict[str, Any]]) -> Optional[str]:
+        """
+        Analyze validation errors to determine which agent is responsible for correction.
+        
+        Returns "data_flow_agent" or "structural_agent" based on error analysis.
+        """
+        # Count error types to make a decision
+        data_flow_errors = 0
+        structural_errors = 0
+        
+        for error in errors:
+            error_type = error.get("error_type", "")
+            
+            # Data flow error types
+            if error_type in [
+                "invalid_data_flow_structure", "missing_data_flows", "self_reference",
+                "duplicate_flow", "data_flow_cycle", "flow_invalid_source", 
+                "flow_invalid_destination", "missing_data_flow"
+            ]:
+                data_flow_errors += 1
+                
+            # Structural error types
+            elif error_type in [
+                "invalid_structure_format", "missing_components", "duplicate_component_name",
+                "duplicate_sequence_number", "undefined_dependency", "dependency_cycle",
+                "missing_structural_dependency"
+            ]:
+                structural_errors += 1
+        
+        # Make a decision
+        if data_flow_errors > structural_errors:
+            return "data_flow_agent"
+        elif structural_errors > data_flow_errors:
+            return "structural_agent"
+        elif data_flow_errors > 0:  # If tied but errors exist, fix data flow first
+            return "data_flow_agent"
+        else:
+            return None  # No errors or cannot determine
+            
+    async def prepare_agent_feedback(self, agent_type: str, errors: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Prepare feedback for the agent to correct errors.
+        
+        Args:
+            agent_type: Either "data_flow_agent" or "structural_agent"
+            errors: List of validation errors
+            
+        Returns:
+            Dictionary with feedback information for the agent
+        """
+        # Filter errors relevant to this agent
+        relevant_errors = []
+        
+        if agent_type == "data_flow_agent":
+            error_types = [
+                "invalid_data_flow_structure", "missing_data_flows", "self_reference",
+                "duplicate_flow", "data_flow_cycle", "flow_invalid_source", 
+                "flow_invalid_destination", "missing_data_flow"
+            ]
+        else:  # structural_agent
+            error_types = [
+                "invalid_structure_format", "missing_components", "duplicate_component_name",
+                "duplicate_sequence_number", "undefined_dependency", "dependency_cycle",
+                "missing_structural_dependency"
+            ]
+            
+        for error in errors:
+            if error.get("error_type", "") in error_types:
+                relevant_errors.append(error)
+                
+        # Prepare feedback for the agent
+        return {
+            "agent_type": agent_type,
+            "error_count": len(relevant_errors),
+            "errors": relevant_errors,
+            "timestamp": datetime.now().isoformat(),
+            "correction_required": len(relevant_errors) > 0
+        }
