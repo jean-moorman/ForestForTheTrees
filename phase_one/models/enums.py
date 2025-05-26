@@ -20,4 +20,5 @@ class PhaseValidationState(Enum):
     STRUCTURAL_REVISING = "structural_revising"
     CROSS_VALIDATING = "cross_validating"
     ARBITRATION = "arbitration"
+    TECHNICAL_VALIDATION = "technical_validation"  # For technical dependency validation
     COMPLETED = "completed"

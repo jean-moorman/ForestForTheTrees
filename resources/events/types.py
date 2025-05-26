@@ -1,10 +1,22 @@
 """
 Event type definitions and core event data structures for the FFTT system.
+
+This module provides classes and enums for working with events, ensuring
+proper serialization and thread-safety for cross-thread communication.
 """
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, asdict
 from datetime import datetime
-from enum import Enum
-from typing import Dict, Any, Optional
+from enum import Enum, auto
+from typing import Dict, Any, Optional, Union
+import json
+import uuid
+
+class EventPriority(Enum):
+    """Priority levels for events."""
+    HIGH = "high"
+    NORMAL = "normal"
+    LOW = "low"
+
 
 class ResourceEventTypes(Enum):
     """Unified event types for resource management"""
@@ -37,16 +49,11 @@ class ResourceEventTypes(Enum):
     RESOURCE_ERROR_RECOVERY_STARTED = "resource_error_recovery_started"
     RESOURCE_ERROR_RECOVERY_COMPLETED = "resource_error_recovery_completed"
     
-    # Phase 0 Earth Agent events
-    EARTH_VALIDATION_STARTED = "earth_agent:validation_started"
-    EARTH_VALIDATION_COMPLETE = "earth_agent:validation_complete"
-    EARTH_VALIDATION_FAILED = "earth_agent:validation_failed"
     
-    # Phase 0 Water Agent events
-    WATER_PROPAGATION_STARTED = "water_agent:propagation_started"
-    WATER_PROPAGATION_COMPLETE = "water_agent:propagation_complete"
-    WATER_PROPAGATION_REJECTED = "water_agent:propagation_rejected"
-    WATER_PROPAGATION_FAILED = "water_agent:propagation_failed"
+    # Earth Agent events
+    EARTH_VALIDATION_STARTED = "earth_validation_started"
+    EARTH_VALIDATION_COMPLETE = "earth_validation_complete"
+    EARTH_VALIDATION_FAILED = "earth_validation_failed"
     
     # Component Phase 0 Analysis events
     COMPONENT_VALIDATION_STARTED = "component:validation_started"
@@ -171,15 +178,120 @@ class ResourceEventTypes(Enum):
     PHASE_FOUR_REFINEMENT_ITERATION = "phase_four:refinement_iteration"
     PHASE_FOUR_DEBUG_STARTED = "phase_four:debug_started"
     PHASE_FOUR_DEBUG_COMPLETED = "phase_four:debug_completed"
+    
+    # Water Agent coordination events
+    COORDINATION_STARTED = "water_agent:coordination_started"
+    COORDINATION_COMPLETED = "water_agent:coordination_completed"
+    COORDINATION_ERROR = "water_agent:coordination_error"
+    COORDINATION_ITERATION = "water_agent:coordination_iteration"
+    MISUNDERSTANDING_DETECTED = "water_agent:misunderstanding_detected"
+    MISUNDERSTANDING_RESOLVED = "water_agent:misunderstanding_resolved"
 
 
 @dataclass
 class Event:
-    """Represents a single event in the system"""
+    """
+    Represents a single event in the system with thread-safe serialization.
+    
+    This class includes methods for serialization and deserialization to ensure
+    events can be safely passed between threads and processes.
+    """
     event_type: str
     data: Dict[str, Any]
-    timestamp: datetime = field(default_factory=datetime.now)
+    timestamp: Union[datetime, str] = field(default_factory=datetime.now)
     resource_type: Optional[str] = None
     correlation_id: Optional[str] = None
     metadata: Dict[str, Any] = field(default_factory=dict)
-    priority: str = "normal"  # One of "high", "normal", "low"
+    priority: EventPriority = EventPriority.NORMAL
+    
+    def __post_init__(self):
+        """Initialize event metadata."""
+        # Ensure we have an event_id in metadata
+        if "event_id" not in self.metadata:
+            self.metadata["event_id"] = str(uuid.uuid4())
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """
+        Convert event to dictionary for serialization.
+        
+        Returns:
+            Dict[str, Any]: Dictionary representation of the event
+        """
+        event_dict = asdict(self)
+        # Convert datetime to ISO format string for serialization
+        if isinstance(event_dict['timestamp'], datetime):
+            event_dict['timestamp'] = event_dict['timestamp'].isoformat()
+        # Convert Enum value to string for serialization
+        if isinstance(event_dict['priority'], EventPriority):
+            event_dict['priority'] = event_dict['priority'].value
+        return event_dict
+    
+    def to_json(self) -> str:
+        """
+        Convert event to JSON string for transport between threads/processes.
+        
+        Returns:
+            str: JSON string representation of the event
+        """
+        # Use custom JSON serialization for datetime and Enums
+        def json_serial(obj):
+            if isinstance(obj, datetime):
+                return obj.isoformat()
+            if isinstance(obj, Enum):
+                return obj.value
+            raise TypeError(f"Type {type(obj)} not serializable")
+            
+        return json.dumps(self.to_dict(), default=json_serial)
+    
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> 'Event':
+        """
+        Create an Event from a dictionary.
+        
+        Args:
+            data: Dictionary representation of an event
+            
+        Returns:
+            Event: The created event
+        """
+        # Convert ISO string timestamp back to datetime if needed
+        if 'timestamp' in data and isinstance(data['timestamp'], str):
+            try:
+                data['timestamp'] = datetime.fromisoformat(data['timestamp'])
+            except ValueError:
+                # Fall back to current time if parsing fails
+                data['timestamp'] = datetime.now()
+        
+        # Convert string priority back to enum if needed
+        if 'priority' in data and isinstance(data['priority'], str):
+            # Try to convert to enum
+            try:
+                data['priority'] = EventPriority(data['priority'])
+            except ValueError:
+                # Default to NORMAL if conversion fails
+                data['priority'] = EventPriority.NORMAL
+                
+        return cls(**data)
+    
+    @classmethod
+    def from_json(cls, json_str: str) -> 'Event':
+        """
+        Create an Event from a JSON string.
+        
+        Args:
+            json_str: JSON string representation of an event
+            
+        Returns:
+            Event: The created event
+        """
+        data = json.loads(json_str)
+        return cls.from_dict(data)
+    
+    def clone(self) -> 'Event':
+        """
+        Create a deep copy of this event.
+        
+        Returns:
+            Event: A new event with the same data
+        """
+        return Event.from_dict(self.to_dict())

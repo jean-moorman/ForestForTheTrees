@@ -81,7 +81,7 @@ class MetricsManager(BaseManager):
                         details={"metric_count": len(self._metrics[metric_name])}
                     )
     
-            await self._event_queue.emit(
+            await self.event_bus.emit(
                 ResourceEventTypes.METRIC_RECORDED.value,
                 {
                     "metric": metric_name,
@@ -157,7 +157,7 @@ class MetricsManager(BaseManager):
             force: If True, perform aggressive cleanup regardless of interval
         """
         now = datetime.now()
-        if not force and (now - self._last_cleanup).seconds < self._cleanup_config.check_interval:
+        if not force and (now - self._last_cleanup).total_seconds() < self._cleanup_config.check_interval:
             return
                 
         self._last_cleanup = now
@@ -165,8 +165,11 @@ class MetricsManager(BaseManager):
         # Determine TTL to use - default to 24 hours if not specified
         ttl_seconds = getattr(self._cleanup_config, 'ttl_seconds', 86400)
         # Use more aggressive TTL if force=True
-        if force:
+        if force and ttl_seconds is not None:
             ttl_seconds = ttl_seconds // 2
+        elif force:
+            # Default to 12 hours if ttl_seconds is None and force is True
+            ttl_seconds = 43200
         
         # Remove metrics for inactive series
         inactive_metrics = []
@@ -196,7 +199,7 @@ class MetricsManager(BaseManager):
             self._memory_monitor._resource_sizes.pop(f"metrics_{metric_name}", None)
                 
             # Emit event for cleanup
-            await self._event_queue.emit(
+            await self.event_bus.emit(
                 ResourceEventTypes.METRIC_RECORDED.value,
                 {
                     "metric": metric_name,
@@ -208,7 +211,7 @@ class MetricsManager(BaseManager):
         if metrics_cleaned > 0:
             logger.info(f"Cleaned up {metrics_cleaned} metric series, reclaimed {memory_reclaimed:.2f}MB")
             
-        await self._event_queue.emit(
+        await self.event_bus.emit(
             ResourceEventTypes.METRIC_RECORDED.value,
             {
                 "metric": "metrics_cleanup",

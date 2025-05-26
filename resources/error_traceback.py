@@ -15,7 +15,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import Dict, List, Optional, Any, Tuple, Set, Callable, Awaitable, TypeVar, Generic, DefaultDict
 from collections import defaultdict, deque
-
+import threading
 from resources.common import ErrorSeverity
 from resources.errors import ErrorClassification, ErrorContext, ResourceError
 
@@ -358,19 +358,43 @@ class ErrorTracebackManager:
     Manager for error traceback with error tracking and visualization capabilities.
     Works alongside the ErrorHandler to provide comprehensive error tracing.
     """
+    # Singleton pattern implementation 
+    _instance = None
+    _lock = threading.RLock()
+    
+    def __new__(cls, event_queue=None):
+        with cls._lock:
+            if cls._instance is None:
+                cls._instance = super(ErrorTracebackManager, cls).__new__(cls)
+                cls._instance._initialized = False
+            return cls._instance
+    
     def __init__(self, event_queue=None):
-        self._graph = ErrorTracebackGraph()
-        self._event_queue = event_queue
-        self._maintenance_task = None
-        self._running = False
-        self._maintenance_interval = timedelta(hours=6)  # Prune old entries every 6 hours
+        # Only initialize once
+        with self._lock:
+            if getattr(self, '_initialized', False):
+                logger.debug("ErrorTracebackManager already initialized")
+                return
+                
+            self._graph = ErrorTracebackGraph()
+            self._event_queue = event_queue
+            self._maintenance_task = None
+            self._running = False
+            self._maintenance_interval = timedelta(hours=6)  # Prune old entries every 6 hours
+            
+            # Mark as initialized
+            self._initialized = True
         
     async def start(self):
         """Start the traceback manager and maintenance tasks"""
+        # Check if already running
         if self._running:
+            logger.info("Error traceback manager already running")
             return
         
+        # Mark as running before subscribing to events
         self._running = True
+        
         if self._event_queue:
             # Subscribe to events we need to track errors
             await self._event_queue.subscribe("error_occurred", self._handle_error_event)
@@ -379,9 +403,11 @@ class ErrorTracebackManager:
             await self._event_queue.subscribe("phase_transition", self._handle_phase_transition)
             await self._event_queue.subscribe("checkpoint_created", self._handle_checkpoint_event)
         
-        # Start maintenance task
-        loop = asyncio.get_event_loop()
-        self._maintenance_task = loop.create_task(self._maintenance_loop())
+        # Only start maintenance task if not already running
+        if not self._maintenance_task or self._maintenance_task.done():
+            loop = asyncio.get_event_loop()
+            self._maintenance_task = loop.create_task(self._maintenance_loop())
+            
         logger.info("Error traceback manager started")
     
     async def stop(self):

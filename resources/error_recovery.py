@@ -60,6 +60,7 @@ class ErrorRecoverySystem:
     """
     Enhanced error recovery system with trace-back capabilities for FFTT.
     Coordinates with system monitoring, event system, and phase coordination.
+    Includes thread safety and thread boundary enforcement.
     """
     def __init__(self, event_queue, traceback_manager=None, system_monitor=None, phase_coordinator=None):
         self._event_queue = event_queue
@@ -67,12 +68,31 @@ class ErrorRecoverySystem:
         self._system_monitor = system_monitor
         self._phase_coordinator = phase_coordinator
         
-        # Recovery tracking
+        # Store thread affinity for proper thread boundary enforcement
+        import threading
+        self._creation_thread_id = threading.get_ident()
+        
+        # Store the event loop for this component
+        import asyncio
+        from resources.events.loop_management import ThreadLocalEventLoopStorage
+        try:
+            loop = asyncio.get_event_loop()
+            ThreadLocalEventLoopStorage.get_instance().set_loop(loop)
+            logger.debug(f"ErrorRecoverySystem initialized in thread {self._creation_thread_id} with loop {id(loop)}")
+        except Exception as e:
+            logger.warning(f"Could not register event loop for ErrorRecoverySystem: {e}")
+        
+        # Thread locks for thread-safe state access
+        self._lock = threading.RLock()  # General lock for shared state
+        self._pattern_lock = threading.RLock()  # Lock for pattern recognition
+        self._circuit_lock = threading.RLock()  # Lock for circuit breaker operations
+        
+        # Recovery tracking with thread-safe access
         self._recovery_plans: Dict[str, RecoveryPlan] = {}
         self._active_recoveries: Set[str] = set()  # Set of active plan IDs
         self._recovery_queue: asyncio.PriorityQueue = asyncio.PriorityQueue()
         
-        # Pattern recognition
+        # Pattern recognition with thread-safe access
         self._error_patterns: DefaultDict[str, List[Dict[str, Any]]] = defaultdict(list)
         self._component_error_stats: DefaultDict[str, Dict[str, Any]] = defaultdict(lambda: {"count": 0, "last_error": None})
         
@@ -81,10 +101,10 @@ class ErrorRecoverySystem:
         self._recovery_worker_count = 3  # Configurable number of workers
         self._running = False
         
-        # Circuit breaker to prevent cascading failures
+        # Circuit breaker to prevent cascading failures with thread-safe access
         self._circuit_breakers: Dict[str, Dict[str, Any]] = {}
         
-        # Checkpointing and rollback
+        # Checkpointing and rollback with thread-safe access
         self._recovery_checkpoints: Dict[str, Dict[str, Any]] = {}
         
         # Logging
@@ -100,12 +120,16 @@ class ErrorRecoverySystem:
         # Start traceback manager
         await self._traceback_manager.start()
         
-        # Subscribe to events
+        # Subscribe to events using thread affinity
         if self._event_queue:
-            await self._event_queue.subscribe("error_occurred", self._handle_error_event)
-            await self._event_queue.subscribe("resource_error_occurred", self._handle_error_event)
-            await self._event_queue.subscribe("resource_error_resolved", self._handle_resolution_event)
-            await self._event_queue.subscribe("checkpoint_created", self._handle_checkpoint_event)
+            # Store current thread ID for later verification
+            self._subscription_thread_id = threading.get_ident()
+            
+            # Subscribe to events
+            await self._event_queue.subscribe(ResourceEventTypes.ERROR_OCCURRED.value, self._handle_error_event)
+            await self._event_queue.subscribe(ResourceEventTypes.RESOURCE_ERROR_OCCURRED.value, self._handle_error_event)
+            await self._event_queue.subscribe(ResourceEventTypes.RESOURCE_ERROR_RESOLVED.value, self._handle_resolution_event)
+            await self._event_queue.subscribe(ResourceEventTypes.CHECKPOINT_CREATED.value, self._handle_checkpoint_event)
         
         # Start recovery workers
         for i in range(self._recovery_worker_count):
@@ -121,12 +145,18 @@ class ErrorRecoverySystem:
             
         self._running = False
         
-        # Unsubscribe from events
+        # Unsubscribe from events - enforce thread boundary
         if self._event_queue:
-            await self._event_queue.unsubscribe("error_occurred", self._handle_error_event)
-            await self._event_queue.unsubscribe("resource_error_occurred", self._handle_error_event)
-            await self._event_queue.unsubscribe("resource_error_resolved", self._handle_resolution_event)
-            await self._event_queue.unsubscribe("checkpoint_created", self._handle_checkpoint_event)
+            # Try to use the same thread that created the subscriptions
+            if hasattr(self, '_subscription_thread_id') and threading.get_ident() != self._subscription_thread_id:
+                # Log the thread mismatch
+                logger.debug(f"Unsubscribe called from thread {threading.get_ident()}, but subscribed in thread {self._subscription_thread_id}")
+            
+            # Unsubscribe from events
+            await self._event_queue.unsubscribe(ResourceEventTypes.ERROR_OCCURRED.value, self._handle_error_event)
+            await self._event_queue.unsubscribe(ResourceEventTypes.RESOURCE_ERROR_OCCURRED.value, self._handle_error_event)
+            await self._event_queue.unsubscribe(ResourceEventTypes.RESOURCE_ERROR_RESOLVED.value, self._handle_resolution_event)
+            await self._event_queue.unsubscribe(ResourceEventTypes.CHECKPOINT_CREATED.value, self._handle_checkpoint_event)
         
         # Stop recovery workers
         for worker in self._recovery_workers:
@@ -147,8 +177,28 @@ class ErrorRecoverySystem:
         
         self.logger.info("Error recovery system stopped")
     
-    async def _handle_error_event(self, event_data: Dict[str, Any]):
-        """Process error events and create recovery plans if needed"""
+    async def _handle_error_event(self, event_type: str, event_data: Dict[str, Any]):
+        """Process error events and create recovery plans if needed with thread safety"""
+        # Enforce thread boundary - delegate to creation thread if called from wrong thread
+        if hasattr(self, '_creation_thread_id'):
+            current_thread_id = threading.get_ident()
+            if current_thread_id != self._creation_thread_id:
+                # Delegate to correct thread to maintain component thread affinity
+                from resources.events.loop_management import EventLoopManager
+                try:
+                    loop = EventLoopManager.get_loop_for_thread(self._creation_thread_id)
+                    if loop:
+                        logger.debug(f"Delegating error event handling to thread {self._creation_thread_id}")
+                        future = EventLoopManager.run_coroutine_threadsafe(
+                            self._handle_error_event(event_type, event_data),
+                            target_loop=loop
+                        )
+                        await asyncio.wrap_future(future)
+                        return
+                except Exception as e:
+                    logger.warning(f"Failed to delegate error handling to creation thread: {e}")
+                    # Continue with current thread as fallback
+        
         try:
             # Extract info from the event
             error_id = event_data.get("error_id", str(uuid.uuid4()))
@@ -164,9 +214,10 @@ class ErrorRecoverySystem:
                 # No recovery needed
                 return
             
-            # Update component error stats
-            self._component_error_stats[component_id]["count"] += 1
-            self._component_error_stats[component_id]["last_error"] = {
+            # Update component error stats with thread safety
+            with self._pattern_lock:
+                self._component_error_stats[component_id]["count"] += 1
+                self._component_error_stats[component_id]["last_error"] = {
                 "error_id": error_id,
                 "error_type": error_type,
                 "timestamp": datetime.now().isoformat()
@@ -974,63 +1025,69 @@ class ErrorRecoverySystem:
             return False
     
     def _check_circuit_breaker(self, circuit_key: str) -> bool:
-        """Check if a circuit breaker is open (True = open/tripped)"""
-        if circuit_key not in self._circuit_breakers:
-            return False
-        
-        circuit = self._circuit_breakers[circuit_key]
-        
-        # Check if the circuit breaker is still within its open period
-        if circuit.get("status") == "open":
-            open_until = circuit.get("open_until")
-            if open_until and datetime.now() < open_until:
-                return True
-            else:
-                # Circuit breaker period has expired, reset to half-open
-                circuit["status"] = "half-open"
-                circuit["failures"] = 0
+        """Check if a circuit breaker is open (True = open/tripped) with thread-safe access"""
+        with self._circuit_lock:
+            if circuit_key not in self._circuit_breakers:
                 return False
-        
-        # Check if failure threshold is exceeded
-        threshold = circuit.get("threshold", 3)
-        if circuit.get("failures", 0) >= threshold:
-            # Trip the circuit breaker
-            circuit["status"] = "open"
-            circuit["open_until"] = datetime.now() + timedelta(minutes=2)  # 2 minute timeout
-            return True
-        
-        return False
+            
+            # Make a thread-safe copy of the circuit state
+            circuit = dict(self._circuit_breakers[circuit_key])
+            
+            # Check if the circuit breaker is still within its open period
+            if circuit.get("status") == "open":
+                open_until = circuit.get("open_until")
+                if open_until and datetime.now() < open_until:
+                    return True
+                else:
+                    # Circuit breaker period has expired, reset to half-open
+                    # Update the original dictionary with thread safety
+                    self._circuit_breakers[circuit_key]["status"] = "half-open"
+                    self._circuit_breakers[circuit_key]["failures"] = 0
+                    return False
+            
+            # Check if failure threshold is exceeded
+            threshold = circuit.get("threshold", 3)
+            if circuit.get("failures", 0) >= threshold:
+                # Trip the circuit breaker with thread safety
+                self._circuit_breakers[circuit_key]["status"] = "open"
+                self._circuit_breakers[circuit_key]["open_until"] = datetime.now() + timedelta(minutes=2)  # 2 minute timeout
+                return True
+            
+            return False
     
     def _increment_circuit_breaker(self, circuit_key: str):
-        """Increment failure count for a circuit breaker"""
-        if circuit_key not in self._circuit_breakers:
-            self._circuit_breakers[circuit_key] = {
-                "status": "closed",
-                "failures": 0,
-                "threshold": 3,
-                "last_failure": datetime.now()
-            }
-        
-        circuit = self._circuit_breakers[circuit_key]
-        circuit["failures"] += 1
-        circuit["last_failure"] = datetime.now()
-        
-        # Check if threshold exceeded
-        if circuit["failures"] >= circuit["threshold"] and circuit["status"] == "closed":
-            # Trip the circuit breaker
-            circuit["status"] = "open"
-            circuit["open_until"] = datetime.now() + timedelta(minutes=2)  # 2 minute timeout
-            self.logger.warning(f"Circuit breaker {circuit_key} tripped")
+        """Increment failure count for a circuit breaker with thread-safe access"""
+        with self._circuit_lock:
+            if circuit_key not in self._circuit_breakers:
+                self._circuit_breakers[circuit_key] = {
+                    "status": "closed",
+                    "failures": 0,
+                    "threshold": 3,
+                    "last_failure": datetime.now()
+                }
+            
+            # Access the circuit with thread safety
+            circuit = self._circuit_breakers[circuit_key]
+            circuit["failures"] += 1
+            circuit["last_failure"] = datetime.now()
+            
+            # Check if threshold exceeded
+            if circuit["failures"] >= circuit["threshold"] and circuit["status"] == "closed":
+                # Trip the circuit breaker within the lock
+                circuit["status"] = "open"
+                circuit["open_until"] = datetime.now() + timedelta(minutes=2)  # 2 minute timeout
+                self.logger.warning(f"Circuit breaker {circuit_key} tripped")
     
     def _reset_circuit_breaker(self, circuit_key: str):
-        """Reset a circuit breaker after successful operation"""
-        if circuit_key in self._circuit_breakers:
-            self._circuit_breakers[circuit_key] = {
-                "status": "closed",
-                "failures": 0,
-                "threshold": 3,
-                "last_success": datetime.now()
-            }
+        """Reset a circuit breaker after successful operation with thread-safe access"""
+        with self._circuit_lock:
+            if circuit_key in self._circuit_breakers:
+                self._circuit_breakers[circuit_key] = {
+                    "status": "closed",
+                    "failures": 0,
+                    "threshold": 3,
+                    "last_success": datetime.now()
+                }
     
     async def handle_operation_error(self, 
                                    error: Exception, 

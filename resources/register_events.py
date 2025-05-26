@@ -11,7 +11,7 @@ from resources.event_registry import EventRegistry, EventTypeMetadata
 from resources.events import ResourceEventTypes
 from resources.schemas import (
     # Base and Phase 0/1 schemas
-    ValidationEventPayload, PropagationEventPayload,
+    ValidationEventPayload,
     ValidationStateChangedPayload, RefinementContextPayload,
     RefinementIterationPayload, AgentUpdateRequestPayload,
     # Phase Two schemas
@@ -303,54 +303,7 @@ def register_phase_zero_events():
         )
     )
     
-    # Water Agent events
-    EventRegistry.register_event(
-        ResourceEventTypes.WATER_PROPAGATION_STARTED.value,
-        EventTypeMetadata(
-            name="Water Propagation Started",
-            description="Emitted when Water agent starts propagating changes",
-            publisher_components=["water_agent", "phase_zero"],
-            subscriber_components=["phase_one", "interface"],
-            schema_class=PropagationEventPayload,
-            priority="normal"
-        )
-    )
-    
-    EventRegistry.register_event(
-        ResourceEventTypes.WATER_PROPAGATION_COMPLETE.value,
-        EventTypeMetadata(
-            name="Water Propagation Complete",
-            description="Emitted when Water agent completes propagation",
-            publisher_components=["water_agent", "phase_zero"],
-            subscriber_components=["phase_one", "interface"],
-            schema_class=PropagationEventPayload,
-            priority="normal"
-        )
-    )
-    
-    EventRegistry.register_event(
-        ResourceEventTypes.WATER_PROPAGATION_REJECTED.value,
-        EventTypeMetadata(
-            name="Water Propagation Rejected",
-            description="Emitted when Water agent rejects propagation",
-            publisher_components=["water_agent", "phase_zero"],
-            subscriber_components=["phase_one", "interface"],
-            schema_class=PropagationEventPayload,
-            priority="high"
-        )
-    )
-    
-    EventRegistry.register_event(
-        ResourceEventTypes.WATER_PROPAGATION_FAILED.value,
-        EventTypeMetadata(
-            name="Water Propagation Failed",
-            description="Emitted when Water agent encounters propagation errors",
-            publisher_components=["water_agent", "phase_zero"],
-            subscriber_components=["phase_one", "interface", "system_error_recovery"],
-            schema_class=PropagationEventPayload,
-            priority="high"
-        )
-    )
+    # Water Agent propagation events removed
     
     # Agent update events
     EventRegistry.register_event(

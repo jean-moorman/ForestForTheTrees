@@ -18,42 +18,26 @@ Specifically, similar to how the overall project is defined as a set of componen
 ## Phase 4
 The actual process of feature code implementation in phase 3 is delegated to nested phase four calls. Since phase three allows for parallel feature development, this means phase four code implementation occurs in parallel as well. Phase 4 is a tiered process of static code generation and compilation, whereby feature code is generated and has to undergo five levels of static compilation verification, each of increasing complexity. Specifically, in order, the compilers focus on formatting, style, logic, type correctness, and security. While phase four does not have a phase zero subphase, it does have specialized agents for compilation analysis and debugging, as well as a general refinement agent for system recursion. After all static compilers are passing, or after a maximum number of refinement loops, the final feature code is returned to phase 3 to serve as code implementation. Besides the various feedback refinement mechanisms described above, many of the complex or essential agents undergo automatic self-reflection on their initial outputs. This includes all foundational agents, e.g., all elaboration agents, all refinement agents, all code generation agents, and some important phase zero feedback agents, i.e., the ‘evolution’ agent and the data flow verification agent. In addition, a specialized ‘system monitoring’ agent periodically processes system metrics to give reports and acts in the case of system failure to recommend the appropriate recovery strategy based on recent history.
 
-# File Breakdown
-## Resource Modules:
-common.py - dependencies: None
-errors.py - dependencies: None
-events.py - dependencies: common, errors
-monitoring.py - dependencies: common, errors, events
-base.py - dependencies: common, errors, events, monitoring
-managers.py - dependencies: common, events, base
-state.py - dependencies: common, events, base, monitoring
-version.py - dependencies: common, errors, events, state, monitoring
-
-## Core Modules:
-api.py - dependencies: None
-agent.py - dependencies: resources, agent validation, api
-agent_validation.py - dependencies: resources, api
-dependency.py - dependencies: resources
-component.py - dependencies: resources, dependency
-feature.py - dependencies: resources, dependency, component
-system_error_recovery.py - dependencies: resources, agent, agent validation
-interface.py - dependencies: resources, system error recovery, agent, agent validation, component, feature
-phase_zero.py - dependencies: resources, interface
-phase_four.py - dependencies: resources, interface
-phase_three.py - dependencies: resources, interface, phase zero, phase four
-phase_two.py - dependencies: resources, interface, phase zero, phase three
-phase_one.py - dependencies: resources, interface, phase zero, phase two
-display.py - dependencies: resources, interface
-main.py - dependencies: resources, display, phase one
-
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## Build/Lint/Test Commands
 
-- Run all tests: `python -m pytest -xvs --log-cli-level=INFO --log-file=test.log --color=yes`
-- Run single test file: `python -m pytest -xvs tests/path/to/test_file.py`
-- Run specific test: `python -m pytest -xvs tests/path/to/test_file.py::test_function_name`
-- Run tests with async support: `python -m pytest -xvs --asyncio-mode=auto tests/path/to/test_file.py`
+### Centralized Test Suite (Recommended)
+- Run all tests: `python tests_new/runners/run_all_tests.py`
+- Run unit tests: `python tests_new/runners/run_unit_tests.py`
+- Run integration tests: `python tests_new/runners/run_integration_tests.py`
+- Run performance tests: `python tests_new/runners/run_performance_tests.py`
+- Run with coverage: `python tests_new/runners/run_all_tests.py --coverage`
+- Run specific category: `python tests_new/runners/run_all_tests.py --unit`
+
+### Direct PyTest Commands
+- Run all tests: `python -m pytest tests_new/ -xvs --log-cli-level=INFO --log-file=test.log --color=yes --asyncio-mode=auto`
+- Run single test file: `python -m pytest -xvs tests_new/unit/core/agents/test_agent.py`
+- Run specific test: `python -m pytest -xvs tests_new/unit/core/agents/test_agent.py::test_agent_initialization`
+- Run tests with async support: `python -m pytest -xvs --asyncio-mode=auto tests_new/unit/events/test_event_core.py`
+
+### Legacy Test Commands (Deprecated)
+- Old test structure: `python -m pytest -xvs tests/` (use tests_new/ instead)
 
 ## Code Style Guidelines
 

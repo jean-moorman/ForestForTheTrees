@@ -196,7 +196,7 @@ class AgentContextManager(BaseManager):
                     details={"context_type": context_type.name}
                 )
 
-            await self._event_queue.emit(
+            await self.event_bus.emit(
                 ResourceEventTypes.AGENT_CONTEXT_UPDATED.value,
                 {
                     "agent_id": agent_id,
@@ -285,7 +285,7 @@ class AgentContextManager(BaseManager):
                 logger.error(f"Error cleaning up context {agent_id}: {e}")
         
         # Report cleanup statistics
-        await self._event_queue.emit(
+        await self.event_bus.emit(
             ResourceEventTypes.METRIC_RECORDED.value,
             {
                 "metric": "agent_context_cleanup",
@@ -304,7 +304,7 @@ class AgentContextManager(BaseManager):
                 del self._context_locks[context_id]
             self._memory_monitor._resource_sizes.pop(f"context_{context_id}", None)
             
-            await self._event_queue.emit(
+            await self.event_bus.emit(
                 ResourceEventTypes.AGENT_CONTEXT_UPDATED.value,
                 {
                     "context_id": context_id,

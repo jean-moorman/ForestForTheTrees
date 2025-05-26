@@ -280,8 +280,10 @@ class FileStateBackend(StateStorageBackend):
             # Check if the resource can be cleaned up completely
             try:
                 state_entry = await self.load_state(resource_id)
-                if state_entry and hasattr(state_entry.state, 'TERMINATED'):
-                    if state_entry.state == 'TERMINATED':
+                if state_entry:
+                    # Import ResourceState here to avoid circular imports
+                    from resources.common import ResourceState
+                    if state_entry.state == ResourceState.TERMINATED:
                         # Check if the terminated state is older than cutoff
                         if state_entry.timestamp.timestamp() < cutoff_timestamp:
                             # Resource is terminated and old enough - remove completely

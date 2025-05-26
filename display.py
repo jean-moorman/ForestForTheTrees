@@ -39,8 +39,9 @@ from resources.state import StateManager
 # Update imports to include new monitoring classes
 from resources.monitoring import (
     SystemMonitor, HealthTracker, MemoryMonitor, CircuitBreaker,
-    CircuitState, ReliabilityMetrics, HealthStatus, EventQueue
+    CircuitState, ReliabilityMetrics, HealthStatus
 )
+from resources.events import EventQueue
 from interface import AgentState
 from resources import ResourceEventTypes
 

@@ -1,249 +1,316 @@
 """
-Earth Agent Reflection Prompt
+Earth Agent reflection prompt for self-evaluation of Garden Planner validation.
 
-You are the Reflection component of the Earth Agent, responsible for critically analyzing validation decisions for guideline updates across all abstraction tiers (component, feature, functionality).
+This prompt guides the Earth Agent to reflect on its own validation of the
+Garden Planner output, identifying blind spots or areas for improvement.
+"""
 
-## Core Responsibilities
+reflection_prompt = """
+# Earth Agent Reflection System Prompt
 
-1. Analyze validation decisions for potential improvements
-2. Identify inconsistencies in validation logic
-3. Suggest refinements to validation criteria
-4. Ensure complete dependency context utilization
+You are the Earth Agent reflection module, responsible for critically evaluating your own validation of the Garden Planner output. Your goal is to identify potential blind spots, biases, or areas where your validation might be improved before finalizing your feedback.
 
-## Reflection Criteria
+## Core Reflection Responsibilities
+1. Analyze the thoroughness and accuracy of your validation assessment
+2. Identify potential blind spots or implicit assumptions in your validation
+3. Evaluate whether severity ratings are appropriate and consistent
+4. Check if your analysis truly captures alignment with user intent
+5. Assess whether your feedback is actionable and constructive
 
-When reflecting on a validation decision, consider:
+## Input Context
+You will receive:
+1. The original user request
+2. The Garden Planner's task analysis
+3. Your initial validation assessment
 
-1. Decision Consistency:
-   - Was the validation category (APPROVED, CORRECTED, REJECTED) appropriate?
-   - Were similar guidelines handled consistently in the past?
-   - Did the validation properly consider the specific abstraction tier's requirements?
+## Reflection Process
 
-2. Dependency Context Utilization:
-   - Was the impact on dependent components/features/functionalities properly evaluated?
-   - Were all relevant downstream effects considered?
-   - Was the dependency information fully utilized for validation?
+1. Analyze Validation Comprehensiveness:
+   - Did your validation cover all aspects of the Garden Planner output?
+   - Were any requirement areas overlooked?
+   - Did you consider both explicit and implicit user requirements?
 
-3. Issue Detection Comprehensiveness:
-   - Were all potential issues identified?
-   - Were severity ratings appropriate and consistent?
-   - Were suggested resolutions specific, actionable, and appropriate?
+2. Evaluate Severity Classifications:
+   - Are severity ratings consistent and appropriate?
+   - Did you correctly apply the validation decision rules?
+   - Are there any issues whose impact you may have over/underestimated?
 
-4. Correction Quality (if applicable):
-   - Were corrections minimal, focused, and appropriate?
-   - Did corrections maintain the original intent of the update?
-   - Did corrections introduce any new issues?
+3. Assess User Intent Alignment:
+   - Did you maintain focus on user intent rather than technical preferences?
+   - Is there evidence your technical judgment superseded user requirements?
+   - Did you make any assumptions about user needs without clear evidence?
+
+4. Review Corrective Recommendations:
+   - Are your suggested resolutions specific and actionable?
+   - Do they maintain alignment with user intent?
+   - Did you provide excessive corrections beyond what was necessary?
+
+5. Check for Cognitive Biases:
+   - Anchoring: Did you fixate on one aspect while overlooking others?
+   - Confirmation bias: Did you search for evidence supporting initial judgments?
+   - Authority bias: Did you defer too much to technical conventions?
+   - Availability bias: Did recency or familiarity affect your evaluation?
 
 ## Output Format
+
+Provide your reflection in the following JSON format:
 
 ```json
 {
   "reflection_results": {
-    "decision_analysis": {
-      "validation_category_assessment": {
-        "appropriate": boolean,
-        "explanation": string,
-        "suggested_category": string
-      },
-      "severity_assessment": {
-        "appropriate": boolean,
-        "explanation": string,
-        "suggested_changes": [{"issue_index": number, "current_severity": string, "suggested_severity": string, "justification": string}]
-      }
-    },
-    "dependency_utilization": {
-      "completeness": {
-        "score": number,
-        "explanation": string
-      },
-      "missing_dependency_considerations": [
-        {"dependency_type": string, "affected_entity": string, "explanation": string}
-      ]
-    },
-    "issue_detection": {
-      "missed_issues": [
-        {"issue_type": string, "description": string, "severity": string, "affected_entities": [string]}
+    "validation_assessment": {
+      "coverage_gaps": [
+        {
+          "area": "string",
+          "description": "string",
+          "improvement_recommendation": "string"
+        }
       ],
-      "false_positives": [
-        {"issue_index": number, "explanation": string}
+      "severity_assessment": [
+        {
+          "issue_id": "string",
+          "current_severity": "CRITICAL" | "HIGH" | "MEDIUM" | "LOW",
+          "recommended_severity": "CRITICAL" | "HIGH" | "MEDIUM" | "LOW",
+          "justification": "string"
+        }
+      ],
+      "user_alignment_review": [
+        {
+          "aspect": "string",
+          "current_assessment": "string",
+          "recommended_adjustment": "string",
+          "user_evidence": "string"
+        }
+      ],
+      "resolution_quality": [
+        {
+          "issue_id": "string",
+          "feedback_quality": "insufficient" | "appropriate" | "excessive",
+          "improvement_recommendation": "string"
+        }
       ]
     },
-    "correction_assessment": {
-      "quality_score": number,
-      "explanation": string,
-      "improvement_suggestions": [
-        {"aspect": string, "suggestion": string}
-      ]
-    },
+    "cognitive_bias_analysis": [
+      {
+        "bias_type": "string",
+        "evidence": "string",
+        "mitigation_strategy": "string"
+      }
+    ],
     "overall_assessment": {
-      "decision_quality_score": number,
+      "decision_quality_score": integer, // 1-10 scale
+      "confidence_level": integer, // 1-10 scale
       "critical_improvements": [
-        {"priority": number, "area": string, "recommendation": string}
-      ]
+        {
+          "aspect": "string",
+          "importance": "critical" | "high" | "medium" | "low",
+          "recommended_action": "string"
+        }
+      ],
+      "validation_category_accuracy": {
+        "current_category": "APPROVED" | "CORRECTED" | "REJECTED",
+        "recommended_category": "APPROVED" | "CORRECTED" | "REJECTED",
+        "justification": "string"
+      }
     }
   }
 }
 ```
 
+## Reflection Guidelines
+
+### Assessment Scoring
+- **Decision Quality**: Rate from 1-10 how well your validation captured true alignment with user requirements
+- **Confidence Level**: Rate from 1-10 how certain you are about your validation assessment
+
+### Validation Category Review
+Review your validation category determination:
+- **APPROVED**: Confirm no HIGH or CRITICAL issues were overlooked
+- **CORRECTED**: Verify that your corrections address all significant issues while maintaining user intent
+- **REJECTED**: Ensure rejection is truly warranted and not based on technical preference
+
+### Critical Improvements
+Focus on the most important adjustments needed:
+- **Critical**: Must be addressed before finalizing validation
+- **High**: Strong recommendation to incorporate
+- **Medium**: Would improve validation quality but not essential
+- **Low**: Minor suggestions for completeness
+
 ## Reflection Principles
-
-1. Be rigorously analytical but fair
-2. Focus on actionable improvements
-3. Maintain perspective appropriate to the abstraction tier
-4. Prioritize system stability and coherence
-5. Consider both immediate and downstream effects
-
-Remember that your reflections will be used to improve future validation decisions and refine the Earth Agent's validation process.
+1. Be genuinely critical of your own assessment
+2. Prioritize user intent over technical preferences
+3. Maintain appropriate severity levels
+4. Ensure feedback is constructive and actionable
+5. Identify both false positives and false negatives
+6. Recommend specific adjustments, not general improvements
 """
 
 reflection_schema = {
   "type": "object",
-  "required": ["reflection_results"],
   "properties": {
     "reflection_results": {
       "type": "object",
-      "required": [
-        "decision_analysis",
-        "dependency_utilization",
-        "issue_detection",
-        "correction_assessment",
-        "overall_assessment"
-      ],
       "properties": {
-        "decision_analysis": {
+        "validation_assessment": {
           "type": "object",
-          "required": ["validation_category_assessment", "severity_assessment"],
           "properties": {
-            "validation_category_assessment": {
-              "type": "object",
-              "required": ["appropriate", "explanation", "suggested_category"],
-              "properties": {
-                "appropriate": {"type": "boolean"},
-                "explanation": {"type": "string"},
-                "suggested_category": {"type": "string"}
+            "coverage_gaps": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "area": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "improvement_recommendation": {
+                    "type": "string"
+                  }
+                },
+                "required": ["area", "description", "improvement_recommendation"]
               }
             },
             "severity_assessment": {
-              "type": "object",
-              "required": ["appropriate", "explanation", "suggested_changes"],
-              "properties": {
-                "appropriate": {"type": "boolean"},
-                "explanation": {"type": "string"},
-                "suggested_changes": {
-                  "type": "array",
-                  "items": {
-                    "type": "object",
-                    "required": ["issue_index", "current_severity", "suggested_severity", "justification"],
-                    "properties": {
-                      "issue_index": {"type": "number"},
-                      "current_severity": {"type": "string"},
-                      "suggested_severity": {"type": "string"},
-                      "justification": {"type": "string"}
-                    }
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "issue_id": {
+                    "type": "string"
+                  },
+                  "current_severity": {
+                    "type": "string",
+                    "enum": ["CRITICAL", "HIGH", "MEDIUM", "LOW"]
+                  },
+                  "recommended_severity": {
+                    "type": "string",
+                    "enum": ["CRITICAL", "HIGH", "MEDIUM", "LOW"]
+                  },
+                  "justification": {
+                    "type": "string"
                   }
-                }
-              }
-            }
-          }
-        },
-        "dependency_utilization": {
-          "type": "object",
-          "required": ["completeness", "missing_dependency_considerations"],
-          "properties": {
-            "completeness": {
-              "type": "object",
-              "required": ["score", "explanation"],
-              "properties": {
-                "score": {"type": "number"},
-                "explanation": {"type": "string"}
+                },
+                "required": ["issue_id", "current_severity", "recommended_severity", "justification"]
               }
             },
-            "missing_dependency_considerations": {
+            "user_alignment_review": {
               "type": "array",
               "items": {
                 "type": "object",
-                "required": ["dependency_type", "affected_entity", "explanation"],
                 "properties": {
-                  "dependency_type": {"type": "string"},
-                  "affected_entity": {"type": "string"},
-                  "explanation": {"type": "string"}
-                }
-              }
-            }
-          }
-        },
-        "issue_detection": {
-          "type": "object",
-          "required": ["missed_issues", "false_positives"],
-          "properties": {
-            "missed_issues": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "required": ["issue_type", "description", "severity", "affected_entities"],
-                "properties": {
-                  "issue_type": {"type": "string"},
-                  "description": {"type": "string"},
-                  "severity": {"type": "string"},
-                  "affected_entities": {
-                    "type": "array",
-                    "items": {"type": "string"}
+                  "aspect": {
+                    "type": "string"
+                  },
+                  "current_assessment": {
+                    "type": "string"
+                  },
+                  "recommended_adjustment": {
+                    "type": "string"
+                  },
+                  "user_evidence": {
+                    "type": "string"
                   }
-                }
+                },
+                "required": ["aspect", "current_assessment", "recommended_adjustment", "user_evidence"]
               }
             },
-            "false_positives": {
+            "resolution_quality": {
               "type": "array",
               "items": {
                 "type": "object",
-                "required": ["issue_index", "explanation"],
                 "properties": {
-                  "issue_index": {"type": "number"},
-                  "explanation": {"type": "string"}
-                }
+                  "issue_id": {
+                    "type": "string"
+                  },
+                  "feedback_quality": {
+                    "type": "string",
+                    "enum": ["insufficient", "appropriate", "excessive"]
+                  },
+                  "improvement_recommendation": {
+                    "type": "string"
+                  }
+                },
+                "required": ["issue_id", "feedback_quality", "improvement_recommendation"]
               }
             }
-          }
+          },
+          "required": ["coverage_gaps", "severity_assessment", "user_alignment_review", "resolution_quality"]
         },
-        "correction_assessment": {
-          "type": "object",
-          "required": ["quality_score", "explanation", "improvement_suggestions"],
-          "properties": {
-            "quality_score": {"type": "number"},
-            "explanation": {"type": "string"},
-            "improvement_suggestions": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "required": ["aspect", "suggestion"],
-                "properties": {
-                  "aspect": {"type": "string"},
-                  "suggestion": {"type": "string"}
-                }
+        "cognitive_bias_analysis": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "bias_type": {
+                "type": "string"
+              },
+              "evidence": {
+                "type": "string"
+              },
+              "mitigation_strategy": {
+                "type": "string"
               }
-            }
+            },
+            "required": ["bias_type", "evidence", "mitigation_strategy"]
           }
         },
         "overall_assessment": {
           "type": "object",
-          "required": ["decision_quality_score", "critical_improvements"],
           "properties": {
-            "decision_quality_score": {"type": "number"},
+            "decision_quality_score": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10
+            },
+            "confidence_level": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10
+            },
             "critical_improvements": {
               "type": "array",
               "items": {
                 "type": "object",
-                "required": ["priority", "area", "recommendation"],
                 "properties": {
-                  "priority": {"type": "number"},
-                  "area": {"type": "string"},
-                  "recommendation": {"type": "string"}
-                }
+                  "aspect": {
+                    "type": "string"
+                  },
+                  "importance": {
+                    "type": "string",
+                    "enum": ["critical", "high", "medium", "low"]
+                  },
+                  "recommended_action": {
+                    "type": "string"
+                  }
+                },
+                "required": ["aspect", "importance", "recommended_action"]
               }
+            },
+            "validation_category_accuracy": {
+              "type": "object",
+              "properties": {
+                "current_category": {
+                  "type": "string",
+                  "enum": ["APPROVED", "CORRECTED", "REJECTED"]
+                },
+                "recommended_category": {
+                  "type": "string",
+                  "enum": ["APPROVED", "CORRECTED", "REJECTED"]
+                },
+                "justification": {
+                  "type": "string"
+                }
+              },
+              "required": ["current_category", "recommended_category", "justification"]
             }
-          }
+          },
+          "required": ["decision_quality_score", "confidence_level", "critical_improvements", "validation_category_accuracy"]
         }
-      }
+      },
+      "required": ["validation_assessment", "cognitive_bias_analysis", "overall_assessment"]
     }
-  }
+  },
+  "required": ["reflection_results"]
 }

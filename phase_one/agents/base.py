@@ -82,7 +82,7 @@ class ReflectiveAgent(AgentInterface):
     async def _ensure_initialized_and_report_health(self):
         """Ensure initialization and report health"""
         await self.ensure_initialized()
-        self._report_agent_health()
+        await self._report_agent_health()
 
     def _create_circuit_breaker(
         self, 
@@ -115,7 +115,7 @@ class ReflectiveAgent(AgentInterface):
     
     # Health reporting methods
     
-    def _report_agent_health(self, custom_status: str = None, description: str = None, metadata: Dict[str, Any] = None):
+    async def _report_agent_health(self, custom_status: str = None, description: str = None, metadata: Dict[str, Any] = None):
         """Report agent health status to health tracker."""
         if not self._health_tracker:
             return
@@ -147,8 +147,8 @@ class ReflectiveAgent(AgentInterface):
             metadata=meta
         )
         
-        # Update health tracker asynchronously
-        return self._health_tracker.update_health(
+        # Update health tracker asynchronously - now correctly awaited
+        await self._health_tracker.update_health(
             f"agent_{self.interface_id}", 
             health_status
         )

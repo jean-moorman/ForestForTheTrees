@@ -1,4 +1,4 @@
-from collections import Counter, deque
+from collections import deque
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 import asyncio
@@ -19,7 +19,15 @@ from FFTT_system_prompts.system_error_recovery.system_monitoring_agent import (
 # Import from our new advanced recovery system
 from resources.error_recovery import ErrorRecoverySystem
 from resources.error_traceback import ErrorTracebackManager
-from resources.recovery_integration import SystemRecoveryManager
+from resources.recovery_integration_simple import SystemRecoveryManagerSimple
+from resources.errors import ErrorHandler
+
+# Import simplified circuit breaker instead of from monitoring module
+from resources.circuit_breakers_simple import (
+    CircuitBreakerSimple,
+    CircuitBreakerRegistrySimple,
+    CircuitState
+)
 
 # Define error severity enum directly instead of importing
 class ErrorSeverity:
@@ -30,6 +38,7 @@ class ErrorSeverity:
 # Define a local HealthStatus class to avoid import
 @dataclass
 class HealthStatus:
+    """Internal health status representation for resources"""
     status: str
     source: str
     description: str = ""
@@ -51,258 +60,6 @@ class ErrorClassification:
 
 logger = logging.getLogger(__name__)
 
-class ErrorHandler:
-    """Centralized error handling system"""
-    def __init__(self, event_queue):
-        self._event_queue = event_queue
-        self._error_counts: Counter = Counter()
-        self._last_errors: Dict[str, datetime] = {}
-        
-    async def handle_error(self,
-                          error: Exception,
-                          component_id: str,
-                          operation: str,
-                          context: Optional[Dict[str, Any]] = None) -> ErrorClassification:
-        """Unified error handling with classification and improved reporting"""
-        error_id = f"{component_id}:{operation}"
-        classification = self._classify_error(error, context)
-        
-        # Track error frequency
-        self._error_counts[error_id] += 1
-        self._last_errors[error_id] = datetime.now()
-        
-        # Enhanced error context for better tracking
-        error_context = {
-            "error_id": error_id,
-            "timestamp": datetime.now().isoformat(),
-            "error_message": str(error),
-            "error_type": type(error).__name__,
-            "stacktrace": self._get_error_traceback(error),
-            "frequency": self._error_counts[error_id],
-            **(context or {})
-        }
-        
-        # Emit error events
-        try:
-            # Emit to ERROR_OCCURRED
-            await self._event_queue.emit(
-                "error_occurred",  # Use string instead of enum
-                {
-                    "component_id": component_id,
-                    "operation": operation,
-                    "error_type": classification.error_type,
-                    "severity": classification.severity,
-                    "requires_intervention": classification.requires_intervention,
-                    "context": error_context
-                }
-            )
-            
-            # Also emit to RESOURCE_ERROR_OCCURRED for existing subscribers
-            await self._event_queue.emit(
-                "resource_error_occurred",  # Use string instead of enum
-                {
-                    "component_id": component_id,
-                    "operation": operation,
-                    "error_type": classification.error_type,
-                    "severity": classification.severity,
-                    "requires_intervention": classification.requires_intervention,
-                    "context": error_context
-                }
-            )
-        except Exception as e:
-            # Log but don't fail the error handling if event emission fails
-            logger.error(f"Failed to emit error events: {str(e)}")
-        
-        return classification
-        
-    def _get_error_traceback(self, error: Exception) -> str:
-        """Get formatted traceback for an error if available"""
-        try:
-            tb = getattr(error, '__traceback__', None)
-            if tb:
-                return ''.join(traceback.format_tb(tb))
-            return "No traceback available"
-        except Exception:
-            return "Error getting traceback"
-        
-    def _classify_error(self, 
-                       error: Exception, 
-                       context: Optional[Dict[str, Any]] = None) -> ErrorClassification:
-        """Classify error type and severity with enhanced patterns"""
-        # Check if the error is a ResourceExhaustionError by checking for required attributes
-        is_exhaustion_error = (
-            hasattr(error, 'current_usage') and
-            hasattr(error, 'limit') and
-            hasattr(error, 'resource_id') and
-            hasattr(error, 'impact_score')
-        )
-        
-        if is_exhaustion_error:
-            # Enhanced classification for extreme memory pressure
-            if error.current_usage > 2 * error.limit:
-                return ErrorClassification(
-                    severity=ErrorSeverity.FATAL,
-                    error_type="extreme_memory_pressure",
-                    source=error.resource_id,
-                    impact_score=0.9,
-                    requires_intervention=True,
-                    recovery_strategy="emergency_cleanup"
-                )
-            # Standard classification
-            return ErrorClassification(
-                severity=ErrorSeverity.FATAL if error.impact_score > 0.8 else ErrorSeverity.DEGRADED,
-                error_type="resource_exhaustion",
-                source=error.resource_id,
-                impact_score=error.impact_score,
-                requires_intervention=getattr(error, 'requires_intervention', False),
-                recovery_strategy=getattr(error, 'recovery_strategy', None)
-            )
-        
-        # Check if the error is a ResourceTimeoutError by checking for required attributes
-        is_timeout_error = (
-            hasattr(error, 'operation') and
-            hasattr(error, 'resource_id') and
-            hasattr(error, 'timeout_seconds')
-        )
-        
-        if is_timeout_error:
-            # Special handling for lock timeouts
-            if "lock_acquisition" in error.operation:
-                # Check if context and details are available
-                lock_type = "unknown"
-                if hasattr(error, 'context') and hasattr(error.context, 'details'):
-                    lock_type = getattr(error.context.details, "lock_type", "unknown")
-                
-                if lock_type == "write":
-                    # Writing locks are more critical
-                    return ErrorClassification(
-                        severity=ErrorSeverity.DEGRADED,
-                        error_type="lock_timeout",
-                        source=error.resource_id,
-                        impact_score=0.7,  # Higher impact
-                        requires_intervention=False,
-                        recovery_strategy="restart_component"
-                    )
-                else:
-                    # Read locks less critical
-                    return ErrorClassification(
-                        severity=ErrorSeverity.TRANSIENT,
-                        error_type="lock_timeout",
-                        source=error.resource_id,
-                        impact_score=0.4,
-                        requires_intervention=False,
-                        recovery_strategy="retry_with_backoff"
-                    )
-            
-            # Standard timeout classification
-            return ErrorClassification(
-                severity=ErrorSeverity.TRANSIENT,
-                error_type="timeout",
-                source=error.resource_id,
-                impact_score=0.5,
-                requires_intervention=False,
-                recovery_strategy="retry_with_backoff"
-            )
-            
-        # Default classification for unknown errors
-        return ErrorClassification(
-            severity=ErrorSeverity.DEGRADED,
-            error_type="unknown",
-            source=context.get("source", "unknown") if context else "unknown",
-            impact_score=0.7,
-            requires_intervention=True,
-            recovery_strategy="manual_intervention_required"
-        )
-
-    async def track_recovery(self,
-                           error_id: str,
-                           success: bool,
-                           recovery_info: Optional[Dict[str, Any]] = None) -> None:
-        """Track recovery attempt results with enhanced reporting"""
-        # Ensure recovery_info is a dictionary
-        if recovery_info is None:
-            recovery_info = {}
-            
-        # Add timestamp for event correlation
-        recovery_info["timestamp"] = datetime.now().isoformat()
-        
-        if success:
-            # Reset error count on successful recovery
-            self._error_counts[error_id] = 0
-            
-            # Prepare event data with detailed information
-            event_data = {
-                "error_id": error_id,
-                "status": "recovered",
-                "recovery_info": recovery_info,
-                "previous_attempts": self._error_counts.get(error_id, 0)
-            }
-            
-            # Emit recovery events
-            try:
-                await self._event_queue.emit(
-                    "error_occurred",  # Use string instead of enum
-                    event_data
-                )
-                
-                await self._event_queue.emit(
-                    "resource_error_resolved",  # Use string instead of enum
-                    event_data
-                )
-                
-                # For successful recoveries, also emit to RESOURCE_ERROR_RECOVERY_COMPLETED
-                await self._event_queue.emit(
-                    "resource_error_recovery_completed",  # Use string instead of enum
-                    event_data
-                )
-                
-            except Exception as e:
-                logger.error(f"Failed to emit recovery events: {str(e)}")
-                
-        else:
-            # Track failed recovery attempt
-            current_attempts = self._error_counts.get(error_id, 0)
-            
-            # Prepare event data with detailed information
-            event_data = {
-                "error_id": error_id,
-                "status": "recovery_failed",
-                "attempt": current_attempts,
-                "recovery_info": recovery_info,
-                "recovery_strategy": recovery_info.get("strategy", "unknown")
-            }
-            
-            # Emit to both event types for compatibility
-            try:
-                await self._event_queue.emit(
-                    "error_occurred",  # Use string instead of enum
-                    event_data
-                )
-                
-                await self._event_queue.emit(
-                    "resource_error_recovery_started",  # Use string instead of enum
-                    event_data
-                )
-                
-                # For failed recoveries, we'll emit a different event 
-                # if we've reached max retries
-                if current_attempts >= 3:  # Consider making this configurable
-                    await self._event_queue.emit(
-                        "resource_alert_created",  # Use string instead of enum
-                        {
-                            **event_data,
-                            "alert_type": "max_recovery_attempts_reached",
-                            "severity": "CRITICAL",
-                            "message": f"Max recovery attempts reached for error {error_id}"
-                        }
-                    )
-                    
-            except Exception as e:
-                logger.error(f"Failed to emit failed recovery events: {str(e)}")
-
-    def requires_forced_cleanup(self, error_id: str, threshold: int = 3) -> bool:
-        """Check if error frequency requires forced cleanup"""
-        return self._error_counts[error_id] >= threshold
 
 
 # Import for async context management
@@ -311,23 +68,61 @@ from contextlib import asynccontextmanager
 class SystemErrorRecovery:
     """System error recovery implementation for handling various recovery strategies"""
     
+    # Singleton pattern implementation
+    _instance = None
+    _lock = threading.RLock()
+    
+    def __new__(cls, event_queue, health_tracker=None, system_monitor=None, state_manager=None):
+        with cls._lock:
+            if cls._instance is None:
+                cls._instance = super(SystemErrorRecovery, cls).__new__(cls)
+                cls._instance._initialized = False
+            return cls._instance
+    
     def __init__(self, event_queue, health_tracker=None, system_monitor=None, state_manager=None):
-        self._event_queue = event_queue
-        self._health_tracker = health_tracker
-        self._system_monitor = system_monitor
-        self._state_manager = state_manager
-        
-        # Initialize classic error handler for backward compatibility
-        self._error_handler = ErrorHandler(event_queue)
-        self._monitoring_agent = SystemMonitoringAgent(event_queue, system_monitor)
-        
-        # Initialize advanced recovery components
-        self._traceback_manager = ErrorTracebackManager(event_queue)
-        self._recovery_system = ErrorRecoverySystem(event_queue, self._traceback_manager, system_monitor)
-        self._recovery_manager = SystemRecoveryManager(event_queue, state_manager, system_monitor)
-        
-        self._monitoring_task = None
-        self._running = False
+        # Ensure initialization happens only once
+        with self._lock:
+            if getattr(self, '_initialized', False):
+                logger.info("SystemErrorRecovery already initialized, reusing existing instance")
+                return
+                
+            self._event_queue = event_queue
+            self._health_tracker = health_tracker
+            self._system_monitor = system_monitor
+            self._state_manager = state_manager
+            
+            # Initialize classic error handler for backward compatibility
+            self._error_handler = ErrorHandler(event_queue)
+            self._monitoring_agent = SystemMonitoringAgent(event_queue, system_monitor)
+            
+            # Initialize advanced recovery components
+            self._traceback_manager = ErrorTracebackManager(event_queue)
+            self._recovery_system = ErrorRecoverySystem(event_queue, self._traceback_manager, system_monitor)
+            self._recovery_manager = SystemRecoveryManagerSimple(event_queue, state_manager, system_monitor)
+            
+            # Initialize circuit breaker registry
+            self._circuit_registry = CircuitBreakerRegistrySimple()
+            
+            # Set event emitter, health tracker, and state manager for the circuit registry
+            # This is using the callback approach to avoid circular dependencies
+            self._circuit_registry.set_event_emitter(event_queue.emit)
+            if health_tracker:
+                self._circuit_registry.set_health_tracker(health_tracker.update_health)
+            if state_manager:
+                self._circuit_registry.set_state_manager(
+                    lambda name, state: state_manager.set_state(
+                        f"circuit_breaker_{name}", 
+                        state["state"], 
+                        metadata=state["metadata"]
+                    )
+                )
+            
+            self._monitoring_task = None
+            self._running = False
+            
+            # Mark as initialized
+            self._initialized = True
+            logger.info("System error recovery service started with enhanced traceback capability")
     
     async def handle_operation_error(self, 
                                    error: Exception, 
@@ -1649,6 +1444,8 @@ class SystemMonitoringAgent:
             
         except Exception as e:
             self.logger.error(f"Error getting recovery recommendation: {e}", exc_info=True)
+            
+            # Return a safe default recommendation
             return self._get_default_recovery_recommendation(error_context)
     
     def _simulate_recovery_response(self, recent_reports: List[Dict[str, Any]], error_context: Dict[str, Any]) -> Dict[str, Any]:

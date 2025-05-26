@@ -32,6 +32,7 @@ class ParallelFeatureCoordinator:
     2. Aggregation of results from parallel feature development
     3. Balancing workload across available resources
     4. Dependency tracking between parallel feature developments
+    5. Thread boundary enforcement for parallel execution
     """
     
     def __init__(self,
@@ -70,6 +71,24 @@ class ParallelFeatureCoordinator:
         
         # Store workload distribution
         self._workload_distribution: Dict[str, int] = {}  # resource_id -> count
+        
+        # Store thread affinity for proper thread boundary enforcement
+        import threading
+        import asyncio
+        self._creation_thread_id = threading.get_ident()
+        
+        # Store the event loop for this component
+        from resources.events.loop_management import ThreadLocalEventLoopStorage
+        try:
+            loop = asyncio.get_event_loop()
+            ThreadLocalEventLoopStorage.get_instance().set_loop(loop)
+            logger.debug(f"ParallelFeatureCoordinator initialized in thread {self._creation_thread_id} with loop {id(loop)}")
+        except Exception as e:
+            logger.warning(f"Could not register event loop for ParallelFeatureCoordinator: {e}")
+            
+        # Keep track of feature semaphores per thread - thread safe dict
+        self._feature_semaphores = {}
+        self._semaphore_lock = threading.RLock()
         
         logger.info(f"ParallelFeatureCoordinator initialized with max_concurrent_features={max_concurrent_features}")
     
@@ -463,7 +482,7 @@ class ParallelFeatureCoordinator:
                               features: List[Dict[str, Any]],
                               config: Dict[str, Any]) -> None:
         """
-        Process features for parallel development.
+        Process features for parallel development with thread boundary enforcement.
         
         Args:
             operation_id: ID of the operation
@@ -471,6 +490,32 @@ class ParallelFeatureCoordinator:
             features: List of feature definitions
             config: Configuration for feature development
         """
+        # Enforce thread boundary - check if we're in the same thread as the coordinator was created in
+        if hasattr(self, '_creation_thread_id'):
+            current_thread_id = threading.get_ident()
+            if current_thread_id != self._creation_thread_id:
+                logger.warning(f"_process_features called from thread {current_thread_id}, but coordinator created in thread {self._creation_thread_id}")
+                
+                # Delegate to the correct thread if possible
+                from resources.events.loop_management import EventLoopManager
+                try:
+                    loop = EventLoopManager.get_loop_for_thread(self._creation_thread_id)
+                    if loop:
+                        logger.info(f"Delegating _process_features to coordinator thread {self._creation_thread_id}")
+                        future = EventLoopManager.run_coroutine_threadsafe(
+                            self._process_features(
+                                operation_id=operation_id,
+                                parent_phase_id=parent_phase_id,
+                                features=features,
+                                config=config
+                            ),
+                            target_loop=loop
+                        )
+                        return await asyncio.wrap_future(future)
+                except Exception as e:
+                    logger.error(f"Error delegating _process_features to coordinator thread: {e}")
+                    # Continue with current thread as fallback, but log the issue
+        
         # Get operation
         operation = self._active_operations[operation_id]
         
@@ -500,7 +545,13 @@ class ParallelFeatureCoordinator:
                 
                 # Process features in this layer in parallel with concurrency limit
                 layer_tasks = []
-                semaphore = asyncio.Semaphore(self._max_concurrent_features)
+                
+                # Use a thread-safe dictionary of semaphores to ensure each thread has its own semaphore
+                current_thread_id = threading.get_ident()
+                with self._semaphore_lock:
+                    if current_thread_id not in self._feature_semaphores:
+                        self._feature_semaphores[current_thread_id] = asyncio.Semaphore(self._max_concurrent_features)
+                    semaphore = self._feature_semaphores[current_thread_id]
                 
                 for feature_id in layer:
                     # Get feature definition
@@ -637,7 +688,7 @@ class ParallelFeatureCoordinator:
                                             feature: Dict[str, Any],
                                             config: Dict[str, Any]) -> None:
         """
-        Process a feature with a semaphore for concurrency control.
+        Process a feature with a semaphore for concurrency control with thread boundary enforcement.
         
         Args:
             semaphore: Semaphore for concurrency control
@@ -646,7 +697,20 @@ class ParallelFeatureCoordinator:
             feature: Feature definition
             config: Configuration for feature development
         """
+        # Log thread information for debugging
+        current_thread_id = threading.get_ident()
+        logger.debug(f"Processing feature {feature['id']} in thread {current_thread_id}")
+        
+        # Verify thread has the right semaphore
+        with self._semaphore_lock:
+            if current_thread_id not in self._feature_semaphores:
+                logger.warning(f"Thread {current_thread_id} missing semaphore, creating new one")
+                self._feature_semaphores[current_thread_id] = asyncio.Semaphore(self._max_concurrent_features)
+                semaphore = self._feature_semaphores[current_thread_id]
+        
+        # Use the semaphore to limit concurrency
         async with semaphore:
+            # Process the feature in its own task to ensure thread safety
             await self._process_single_feature(operation_id, parent_phase_id, feature, config)
     
     async def _process_single_feature(self,

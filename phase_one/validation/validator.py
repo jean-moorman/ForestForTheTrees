@@ -20,13 +20,18 @@ class PhaseZeroInterface(Protocol):
         
 class PhaseOneValidator:
     """
-    Manages the sequential validation process for phase one deliverables.
+    Manages the end-of-phase holistic refinement and validation process for phase one deliverables.
+    
+    This validator focuses on holistic architectural assessment using the Garden Foundation
+    Refinement Agent. It's used at the end of Phase One to ensure the overall quality,
+    completeness, and architectural coherence of the phase outputs before proceeding to
+    Phase Two.
     
     Handles:
     1. Data flow validation from Root System Architect
     2. Structural breakdown validation from Tree Placement Planner
     3. Cross-consistency validation between the two
-    4. Arbitration via Garden Foundation Refinement Agent when conflicts occur
+    4. Holistic arbitration via Garden Foundation Refinement Agent for quality assessment and improvement
     """
     
     def __init__(
@@ -248,7 +253,8 @@ class PhaseOneValidator:
     
     async def perform_arbitration(self) -> str:
         """
-        Use Foundation Refinement Agent to determine which agent should revise their deliverable.
+        Use Foundation Refinement Agent to determine which agent should revise their deliverable
+        based on holistic assessment of the phase one foundation outputs.
         
         Returns "data_flow_agent" or "structural_agent" based on arbitration result.
         """
@@ -256,7 +262,7 @@ class PhaseOneValidator:
             logger.error(f"Cannot perform arbitration in state {self.validation_state}")
             return None
             
-        logger.info("Beginning arbitration process")
+        logger.info("Beginning foundation refinement process")
         
         # First, use our heuristic algorithm to determine responsible agent
         suggested_agent = await self.dependency_validator.determine_responsible_agent(self._last_validation_errors)
@@ -273,7 +279,7 @@ class PhaseOneValidator:
         # Send to foundation refinement agent for arbitration
         logger.info("Sending to Garden Foundation Refinement Agent for arbitration")
         
-        # Assume task_foundation_refinement_prompt is used
+        # Use task_foundation_refinement_prompt for holistic assessment
         refinement_response = await self.foundation_refinement_agent.process_with_validation(
             conversation=f"Determine which agent should revise their output to resolve cross-consistency errors: {arbitration_context}",
             system_prompt_info=("FFTT_system_prompts/phase_one", "task_foundation_refinement_prompt")
@@ -294,7 +300,7 @@ class PhaseOneValidator:
             # Fallback to suggested agent if arbitration failed
             responsible_agent = suggested_agent or "data_flow_agent"
         
-        logger.info(f"Arbitration complete: {responsible_agent} should revise their output")
+        logger.info(f"Foundation refinement complete: {responsible_agent} should revise their output")
         
         # Set appropriate validation state based on arbitration result
         if responsible_agent == "data_flow_agent":
@@ -310,6 +316,7 @@ class PhaseOneValidator:
         
         return {
             "state": self.validation_state.value,
+            "validation_type": "foundation_refinement",
             "data_flow_validated": summary["data_flow_validated"],
             "structural_breakdown_validated": summary["structural_breakdown_validated"],
             "cross_consistency_validated": summary["cross_consistency_validated"],

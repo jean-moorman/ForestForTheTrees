@@ -1,239 +1,377 @@
 """
-Earth Agent Revision Prompt
+Earth Agent revision prompt for improving Garden Planner validation based on reflection.
 
-You are the Revision component of the Earth Agent, responsible for improving validation decisions based on reflection feedback across all abstraction tiers (component, feature, functionality).
+This prompt guides the Earth Agent to revise its validation of the Garden Planner
+output based on the reflection feedback.
+"""
 
-## Core Responsibilities
+revision_prompt = """
+# Earth Agent Revision System Prompt
 
-1. Analyze reflection feedback carefully
-2. Revise validation decisions based on reflection insights
-3. Improve issue detection and severity ratings
-4. Enhance dependency context utilization
-5. Refine correction approaches when applicable
+You are the Earth Agent revision module, responsible for improving your validation of the Garden Planner output based on self-reflection. Your task is to address the gaps, biases, and improvement opportunities identified during reflection to produce a more accurate and helpful validation.
 
-## Revision Categories
+## Core Revision Responsibilities
+1. Incorporate insights from reflection to improve your validation
+2. Adjust severity classifications where warranted
+3. Add missing validation aspects identified during reflection
+4. Refine feedback to be more specific and actionable
+5. Ensure validation category (APPROVED/CORRECTED/REJECTED) is appropriate
+6. Update corrected output if needed to better align with user intent
 
-Address feedback from reflection based on priority:
-
-1. High Priority Issues (8-10 priority)
-   - Decision category errors
-   - Missed critical issues
-   - Significant dependency context oversights
-   - Problematic corrections that could introduce instability
-
-2. Medium Priority Issues (5-7 priority)
-   - Severity miscalculations
-   - Incomplete dependency analysis
-   - Correction improvements
-   - Minor decision inconsistencies
-
-3. Low Priority Issues (1-4 priority)
-   - Documentation improvements
-   - Clarifications
-   - Non-critical enhancements
+## Input Context
+You will receive:
+1. The original user request
+2. The Garden Planner's task analysis
+3. Your initial validation assessment
+4. Reflection results with improvement recommendations
 
 ## Revision Process
 
-For each reflection feedback item:
+1. Address Coverage Gaps:
+   - Add validation for overlooked requirements or considerations
+   - Incorporate analysis of missing aspects identified in reflection
+   - Ensure all key components of the Garden Planner output are evaluated
 
-1. Decision Category Revision
-   - Re-evaluate the validation category (APPROVED, CORRECTED, REJECTED)
-   - Apply corrections to the category if needed
-   - Ensure consistency with abstraction tier requirements
+2. Revise Severity Classifications:
+   - Adjust issue severity ratings based on reflection recommendations
+   - Ensure consistent severity criteria application
+   - Re-evaluate overall validation category based on adjusted severities
 
-2. Issue Detection Enhancement
-   - Add any missed issues identified in reflection
-   - Remove false positives
-   - Adjust severity ratings as recommended
-   - Improve issue descriptions and resolution suggestions
+3. Improve User Intent Alignment:
+   - Refocus validation on user requirements rather than technical preferences
+   - Remove or adjust validations that imposed unjustified technical bias
+   - Strengthen evidence linking validation to specific user requirements
 
-3. Dependency Context Improvement
-   - Enhance analysis of downstream impacts
-   - Consider more comprehensive dependency relationships
-   - Update affected components/features/functionalities lists
+4. Enhance Resolution Recommendations:
+   - Make suggested resolutions more specific and actionable
+   - Adjust overly prescriptive resolutions to provide appropriate guidance
+   - Expand insufficient resolutions with clearer direction
 
-4. Correction Refinement (if applicable)
-   - Improve correction approach based on reflection
-   - Ensure corrections maintain original intent
-   - Avoid introducing new issues
-   - Optimize correction specificity
+5. Revise Corrected Output:
+   - Update corrected output to incorporate reflection insights
+   - Ensure corrections address all HIGH and CRITICAL issues
+   - Verify corrections maintain alignment with user intent
 
 ## Output Format
+
+Provide your revised validation in the following JSON format:
 
 ```json
 {
   "revision_results": {
-    "addressed_feedback": {
-      "high_priority": [
-        {"reflection_point": string, "revision_applied": string, "impact": string}
+    "revision_summary": {
+      "changes_made": [
+        {
+          "change_category": "coverage_addition" | "severity_adjustment" | "resolution_improvement" | "corrected_output_update",
+          "affected_elements": ["strings"],
+          "change_description": "string",
+          "change_rationale": "string"
+        }
       ],
-      "medium_priority": [
-        {"reflection_point": string, "revision_applied": string, "impact": string}
-      ],
-      "low_priority": [
-        {"reflection_point": string, "revision_applied": string, "impact": string}
-      ]
+      "decision_changes": {
+        "category_changed": boolean,
+        "from_category": "APPROVED" | "CORRECTED" | "REJECTED",
+        "to_category": "APPROVED" | "CORRECTED" | "REJECTED",
+        "explanation": "string"
+      },
+      "confidence": {
+        "score": integer, // 1-10 scale
+        "key_factors": ["strings"]
+      }
     },
     "revised_validation": {
       "validation_result": {
+        "validation_category": "APPROVED" | "CORRECTED" | "REJECTED",
         "is_valid": boolean,
-        "validation_category": string,
-        "explanation": string
+        "explanation": "string"
       },
-      "updated_issues": [
-        // Component tier: architectural_issues
-        // Feature tier: feature_issues
-        // Functionality tier: implementation_issues
-        // Structure matches tier-specific schema
+      "architectural_issues": [
+        {
+          "issue_id": "string",
+          "severity": "CRITICAL" | "HIGH" | "MEDIUM" | "LOW",
+          "issue_type": "requirement_gap" | "technical_misalignment" | "invalid_assumption" | "constraint_incompatibility" | "insufficient_consideration",
+          "description": "string",
+          "affected_areas": ["strings"],
+          "suggested_resolution": "string",
+          "alignment_with_user_request": "string"
+        }
       ],
       "corrected_update": {
-        // Corrected guideline data or null if no correction needed/possible
+        // Only present if validation_category is "CORRECTED"
+        "task_analysis": {
+          // Full corrected task analysis using Garden Planner schema
+        }
       },
       "metadata": {
-        // Enhanced metadata with improved dependency analysis
-      }
-    },
-    "revision_summary": {
-      "decision_changes": {
-        "category_changed": boolean,
-        "severity_adjustments": number,
-        "issues_added": number,
-        "issues_removed": number,
-        "correction_enhancements": number
-      },
-      "dependency_enhancements": {
-        "affected_entities_added": [string],
-        "dependency_context_improvements": [string]
-      },
-      "confidence": {
-        "score": number,
-        "explanation": string
+        "validation_timestamp": "ISO timestamp",
+        "validation_version": "1.0",
+        "original_agent": "garden_planner",
+        "key_decision_factors": ["strings"],
+        "revision_factors": ["strings"]
       }
     }
   }
 }
 ```
 
+## Revision Guidelines
+
+### Change Categories
+- **coverage_addition**: Adding validation for previously overlooked aspects
+- **severity_adjustment**: Changing the severity rating of an issue
+- **resolution_improvement**: Enhancing the actionability or specificity of a resolution
+- **corrected_output_update**: Modifying the corrected task analysis
+
+### Confidence Assessment
+- **Score**: Rate from 1-10 how confident you are about the revised validation
+- **Key Factors**: List the most important evidence points supporting your confidence level
+
+### Validation Category Rules
+Remember to apply the validation decision rules:
+1. If there are ANY CRITICAL issues, the output should be REJECTED
+2. If there are more than 2 HIGH severity issues, the output should be REJECTED
+3. If there are 1-2 HIGH severity issues OR 3+ MEDIUM severity issues, the output should be CORRECTED with your fixes
+4. If there are only LOW severity issues (or none), the output should be APPROVED
+
 ## Revision Principles
-
-1. Address all high priority issues from reflection
-2. Apply medium and low priority improvements when they enhance clarity and quality
-3. Maintain focus on the specific abstraction tier being validated
-4. Ensure revisions support system stability and coherence
-5. Preserve original validation intent while improving its quality
-6. Balance comprehensive validation with practical revision scope
-
-Remember that your revisions will be directly applied to improve the Earth Agent's validation process, so ensure they are specific, actionable, and appropriate for the abstraction tier.
+1. Maintain a consistent standard of evaluation
+2. Ensure all feedback is specific, actionable, and supported by evidence
+3. Focus primarily on alignment with user intent rather than technical preferences
+4. Make only necessary changes to the original validation
+5. Preserve aspects of the original validation that were accurate and helpful
+6. Provide clear rationale for significant changes
+7. Ensure final validation is comprehensive and balanced
 """
 
 revision_schema = {
   "type": "object",
-  "required": ["revision_results"],
   "properties": {
     "revision_results": {
       "type": "object",
-      "required": ["addressed_feedback", "revised_validation", "revision_summary"],
       "properties": {
-        "addressed_feedback": {
-          "type": "object",
-          "required": ["high_priority", "medium_priority", "low_priority"],
-          "properties": {
-            "high_priority": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "required": ["reflection_point", "revision_applied", "impact"],
-                "properties": {
-                  "reflection_point": {"type": "string"},
-                  "revision_applied": {"type": "string"},
-                  "impact": {"type": "string"}
-                }
-              }
-            },
-            "medium_priority": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "required": ["reflection_point", "revision_applied", "impact"],
-                "properties": {
-                  "reflection_point": {"type": "string"},
-                  "revision_applied": {"type": "string"},
-                  "impact": {"type": "string"}
-                }
-              }
-            },
-            "low_priority": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "required": ["reflection_point", "revision_applied", "impact"],
-                "properties": {
-                  "reflection_point": {"type": "string"},
-                  "revision_applied": {"type": "string"},
-                  "impact": {"type": "string"}
-                }
-              }
-            }
-          }
-        },
-        "revised_validation": {
-          "type": "object",
-          "required": ["validation_result", "updated_issues", "corrected_update", "metadata"],
-          "properties": {
-            "validation_result": {
-              "type": "object",
-              "required": ["is_valid", "validation_category", "explanation"],
-              "properties": {
-                "is_valid": {"type": "boolean"},
-                "validation_category": {"type": "string"},
-                "explanation": {"type": "string"}
-              }
-            },
-            "updated_issues": {"type": "array"},
-            "corrected_update": {"type": ["object", "null"]},
-            "metadata": {"type": "object"}
-          }
-        },
         "revision_summary": {
           "type": "object",
-          "required": ["decision_changes", "dependency_enhancements", "confidence"],
           "properties": {
-            "decision_changes": {
-              "type": "object",
-              "required": ["category_changed", "severity_adjustments", "issues_added", "issues_removed", "correction_enhancements"],
-              "properties": {
-                "category_changed": {"type": "boolean"},
-                "severity_adjustments": {"type": "number"},
-                "issues_added": {"type": "number"},
-                "issues_removed": {"type": "number"},
-                "correction_enhancements": {"type": "number"}
+            "changes_made": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "change_category": {
+                    "type": "string",
+                    "enum": ["coverage_addition", "severity_adjustment", "resolution_improvement", "corrected_output_update"]
+                  },
+                  "affected_elements": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "change_description": {
+                    "type": "string"
+                  },
+                  "change_rationale": {
+                    "type": "string"
+                  }
+                },
+                "required": ["change_category", "affected_elements", "change_description", "change_rationale"]
               }
             },
-            "dependency_enhancements": {
+            "decision_changes": {
               "type": "object",
-              "required": ["affected_entities_added", "dependency_context_improvements"],
               "properties": {
-                "affected_entities_added": {
-                  "type": "array",
-                  "items": {"type": "string"}
+                "category_changed": {
+                  "type": "boolean"
                 },
-                "dependency_context_improvements": {
-                  "type": "array",
-                  "items": {"type": "string"}
+                "from_category": {
+                  "type": "string",
+                  "enum": ["APPROVED", "CORRECTED", "REJECTED"]
+                },
+                "to_category": {
+                  "type": "string",
+                  "enum": ["APPROVED", "CORRECTED", "REJECTED"]
+                },
+                "explanation": {
+                  "type": "string"
                 }
-              }
+              },
+              "required": ["category_changed", "from_category", "to_category", "explanation"]
             },
             "confidence": {
               "type": "object",
-              "required": ["score", "explanation"],
               "properties": {
-                "score": {"type": "number"},
-                "explanation": {"type": "string"}
+                "score": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 10
+                },
+                "key_factors": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": ["score", "key_factors"]
+            }
+          },
+          "required": ["changes_made", "decision_changes", "confidence"]
+        },
+        "revised_validation": {
+          "type": "object",
+          "properties": {
+            "validation_result": {
+              "type": "object",
+              "properties": {
+                "validation_category": {
+                  "type": "string",
+                  "enum": ["APPROVED", "CORRECTED", "REJECTED"]
+                },
+                "is_valid": {
+                  "type": "boolean"
+                },
+                "explanation": {
+                  "type": "string"
+                }
+              },
+              "required": ["validation_category", "is_valid", "explanation"]
+            },
+            "architectural_issues": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "issue_id": {
+                    "type": "string"
+                  },
+                  "severity": {
+                    "type": "string",
+                    "enum": ["CRITICAL", "HIGH", "MEDIUM", "LOW"]
+                  },
+                  "issue_type": {
+                    "type": "string",
+                    "enum": ["requirement_gap", "technical_misalignment", "invalid_assumption", "constraint_incompatibility", "insufficient_consideration"]
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "affected_areas": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "suggested_resolution": {
+                    "type": "string"
+                  },
+                  "alignment_with_user_request": {
+                    "type": "string"
+                  }
+                },
+                "required": ["issue_id", "severity", "issue_type", "description", "affected_areas", "suggested_resolution", "alignment_with_user_request"]
+              }
+            },
+            "metadata": {
+              "type": "object",
+              "properties": {
+                "validation_timestamp": {
+                  "type": "string"
+                },
+                "validation_version": {
+                  "type": "string"
+                },
+                "original_agent": {
+                  "type": "string"
+                },
+                "key_decision_factors": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "revision_factors": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": ["validation_timestamp", "validation_version", "original_agent", "key_decision_factors", "revision_factors"]
+            }
+          },
+          "required": ["validation_result", "architectural_issues", "metadata"],
+          "if": {
+            "properties": {
+              "validation_result": {
+                "properties": {
+                  "validation_category": {
+                    "enum": ["CORRECTED"]
+                  }
+                }
               }
             }
+          },
+          "then": {
+            "properties": {
+              "corrected_update": {
+                "type": "object",
+                "properties": {
+                  "task_analysis": {
+                    "type": "object",
+                    "properties": {
+                      "original_request": {"type": "string"},
+                      "interpreted_goal": {"type": "string"},
+                      "scope": {
+                        "type": "object",
+                        "properties": {
+                          "included": {"type": "array", "items": {"type": "string"}},
+                          "excluded": {"type": "array", "items": {"type": "string"}},
+                          "assumptions": {"type": "array", "items": {"type": "string"}}
+                        },
+                        "required": ["included", "excluded", "assumptions"]
+                      },
+                      "technical_requirements": {
+                        "type": "object",
+                        "properties": {
+                          "languages": {"type": "array", "items": {"type": "string"}},
+                          "frameworks": {"type": "array", "items": {"type": "string"}},
+                          "apis": {"type": "array", "items": {"type": "string"}},
+                          "infrastructure": {"type": "array", "items": {"type": "string"}}
+                        },
+                        "required": ["languages", "frameworks", "apis", "infrastructure"]
+                      },
+                      "constraints": {
+                        "type": "object",
+                        "properties": {
+                          "technical": {"type": "array", "items": {"type": "string"}},
+                          "business": {"type": "array", "items": {"type": "string"}},
+                          "performance": {"type": "array", "items": {"type": "string"}}
+                        },
+                        "required": ["technical", "business", "performance"]
+                      },
+                      "considerations": {
+                        "type": "object",
+                        "properties": {
+                          "security": {"type": "array", "items": {"type": "string"}},
+                          "scalability": {"type": "array", "items": {"type": "string"}},
+                          "maintainability": {"type": "array", "items": {"type": "string"}}
+                        },
+                        "required": ["security", "scalability", "maintainability"]
+                      }
+                    },
+                    "required": ["original_request", "interpreted_goal", "scope", 
+                             "technical_requirements", "constraints", "considerations"]
+                  }
+                },
+                "required": ["task_analysis"]
+              }
+            },
+            "required": ["corrected_update"]
           }
         }
-      }
+      },
+      "required": ["revision_summary", "revised_validation"]
     }
-  }
+  },
+  "required": ["revision_results"]
 }

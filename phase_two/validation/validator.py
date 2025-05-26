@@ -10,8 +10,6 @@ from resources import EventQueue, StateManager, MetricsManager, ResourceType, Re
 from resources.monitoring import MemoryMonitor, SystemMonitor
 from resources.base import AsyncTimeoutManager
 from interface import AgentInterface
-from resources.earth_agent import EarthAgent
-from resources.water_agent import WaterAgent
 
 # We'll define our own ComponentValidationState enum
 from enum import Enum
@@ -47,8 +45,7 @@ class ComponentValidator:
     3. Component data flow validation using the Flower Root System Agent
     4. Component features validation using the Flower Placement Agent 
     5. Arbitration and coordination when conflicts occur
-    6. Integration with Earth and Water elemental agents
-    7. Context cleanup and progress tracking during refinement
+    6. Context cleanup and progress tracking during refinement
     """
     
     def __init__(
@@ -60,8 +57,6 @@ class ComponentValidator:
         flower_root_system_agent: AgentInterface,
         flower_placement_agent: AgentInterface,
         refinement_agent: AgentInterface,
-        earth_agent: Optional[EarthAgent] = None,
-        water_agent: Optional[WaterAgent] = None,
         metrics_manager: Optional[MetricsManager] = None,
         memory_monitor: Optional[MemoryMonitor] = None,
         system_monitor: Optional[SystemMonitor] = None,
@@ -78,8 +73,6 @@ class ComponentValidator:
             flower_root_system_agent: Agent for component data flow
             flower_placement_agent: Agent for component features
             refinement_agent: Agent for arbitration and refinement
-            earth_agent: Earth elemental agent for validation
-            water_agent: Water elemental agent for propagation
             metrics_manager: Metrics manager
             memory_monitor: Memory monitor
             system_monitor: System monitor
@@ -92,8 +85,6 @@ class ComponentValidator:
         self.flower_root_system_agent = flower_root_system_agent
         self.flower_placement_agent = flower_placement_agent
         self.refinement_agent = refinement_agent
-        self.earth_agent = earth_agent
-        self.water_agent = water_agent
         self.metrics_manager = metrics_manager or MetricsManager(event_queue)
         self.memory_monitor = memory_monitor
         self.system_monitor = system_monitor
@@ -284,8 +275,6 @@ class ComponentValidator:
         """
         Validate component description using the Flower Bed Planner Agent.
         
-        This method also integrates with the Earth agent for additional validation.
-        
         Args:
             description: Component description to validate
             
@@ -297,22 +286,6 @@ class ComponentValidator:
         
         # Store component description
         self._component_description = description
-        
-        # First, use Earth agent for validation if available
-        if self.earth_agent:
-            try:
-                validation_result = await self.earth_agent.validate_component_description(
-                    self._component_id, description
-                )
-                
-                if not validation_result.get("passed", True):
-                    self._last_validation_errors = validation_result.get("issues", [])
-                    await self.set_validation_state(ComponentValidationState.DESCRIPTION_REVISING)
-                    logger.warning(f"Component description validation failed with Earth agent: {len(self._last_validation_errors)} issues")
-                    return False
-            except Exception as e:
-                logger.error(f"Error validating with Earth agent: {str(e)}")
-                # Continue with regular validation
         
         # Run standard validation checks
         is_valid, errors = await self._validate_component_description(description)
@@ -1179,17 +1152,7 @@ class ComponentValidator:
             "timestamp": datetime.now().isoformat()
         }
         
-        # Use Water agent for propagation if available
-        if self.water_agent:
-            try:
-                await self.water_agent.propagate_guideline_update(
-                    f"component_{self._component_id}",
-                    complete_guidelines,
-                    {}  # Context information would be provided here
-                )
-            except Exception as e:
-                logger.error(f"Error propagating guidelines with Water agent: {str(e)}")
-                # Continue without propagation
+        # No propagation
         
         return complete_guidelines
         

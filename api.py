@@ -112,7 +112,9 @@ class AnthropicAPI:
                 "cache_control": {"type": "ephemeral"}
             })
         
-        response = self.client.messages.create(
+        # Run the synchronous API call in a thread to avoid blocking the event loop
+        response = await asyncio.to_thread(
+            self.client.messages.create,
             model=self.model,
             max_tokens=max_tokens,
             messages=messages,

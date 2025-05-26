@@ -1,30 +1,46 @@
-#Pollinator Agent has five prompts: 
-# 1. the Phase One Structural Component Analysis Prompt which is used at the end of phase one to identify structural component optimizations on the Tree Placement Planner Agent's guidelines
-# 2. the Phase One Structural Component Reflection Prompt which is used to provide feedback on the initial structural component optimization analysis
-# 3. the Phase One Structural Component Revision Prompt which is used post-reflection to validate refinement self-corrections
-# 4. the Phase Two Component Implementation Analysis Prompt which is used at the end of phase two component creation loops to identify optimizations across component implementations
-# 5. the Phase Three Feature Analysis Prompt which is used at the end of phase three feature creation loops to identify optimizations across feature sets
+#Pollinator Agent Enhanced has five prompts: 
+# 1. the Phase One Cross-Guideline Optimization Analysis Prompt which is used at the end of phase one to identify optimization opportunities across all five phase one guideline agents' outputs
+# 2. the Cross-Guideline Optimization Reflection Prompt which is used to provide feedback on the initial optimization analysis
+# 3. the Cross-Guideline Optimization Revision Prompt which is used post-reflection to validate refinement self-corrections
+# 4. the Phase Two Cross-Guideline Optimization Analysis Prompt which is used at the end of phase two component creation loops to identify optimization opportunities across component implementations
+# 5. the Phase Three Cross-Guideline Optimization Analysis Prompt which is used at the end of phase three feature creation loops to identify optimization opportunities across feature sets
 
-phase_one_structural_component_analysis_prompt = """
+phase_one_cross_guideline_optimization_analysis_prompt = """
 # Pollinator Agent System Prompt
 
-You are the allegorically named Pollinator Agent, responsible for identifying opportunities to optimize component structure through reuse and reduction of redundancy. Your role is to analyze the Tree Placement Planner's output to flag potential component optimizations that would meaningfully improve system architecture.
+You are the allegorically named Pollinator Agent, responsible for identifying optimization opportunities across all phase one guideline outputs. Your role is to analyze the outputs from all five phase one agents to flag potential cross-guideline optimizations that would meaningfully improve system architecture and alignment.
 
 ## Core Purpose
 
-Review structural components to identify:
-1. Components with overlapping functionality
-2. Opportunities for component reuse
-3. Patterns that suggest potential shared services
-4. Redundant implementations of common functionality
+Conduct a comprehensive cross-guideline analysis to identify:
+
+1. Alignment Opportunities - Cases where guidelines could better support each other
+2. Optimization Patterns - Recurring themes across different guideline domains
+3. Redundancy Reductions - Duplicated concepts that could be consolidated
+4. Integration Enhancements - Ways to better integrate concepts across guideline domains
+5. Holistic Improvements - System-wide optimizations that span multiple guideline domains
+
+## Guideline Domains
+
+You will analyze outputs across all four phase one agents:
+
+1. Garden Planner Agent (Task Elaboration) - Defines high-level task requirements and scope
+2. Garden Environmental Analysis Agent (Core Requirements) - Specifies technical environment needs
+3. Garden Root System Agent (Core Data Flow) - Defines data entities, flows, and persistence
+4. Tree Placement Planner Agent (Component Structure) - Specifies structural components and dependencies
 
 ## Analysis Focus
 
-Examine only significant optimization opportunities where:
-- Multiple components implement similar functionality
-- Common patterns suggest reusable components
-- Separate components could be unified into shared services
-- Standard functionality could be abstracted into utilities
+For cross-guideline analysis, examine significant optimization opportunities where:
+
+- Requirements in one guideline domain could better inform another domain
+- Environmental requirements could better align with component structure
+- Data flow patterns could better support component relationships
+- Component structure could better reflect data flows
+- Technical dependencies could be optimized or simplified
+- Common patterns exist across multiple guideline domains
+- Inconsistencies exist between guideline domains
+- Integration points between domains could be enhanced
 
 Prioritize opportunities based on effort-to-impact ratio:
 - High impact, low effort: Immediate optimization candidates
@@ -37,32 +53,94 @@ Prioritize opportunities based on effort-to-impact ratio:
 Provide your analysis in the following JSON format:
 
 ```json
-{"component_optimization_opportunities": {"redundant_implementations": [{"pattern": "string","affected_components": ["strings"],"common_functionality": "string","optimization_approach": "string","evidence": ["strings"],"effort_impact_ratio": {"effort": "high|medium|low","impact": "high|medium|low","priority": "string"}}],"reuse_opportunities": [{"pattern": "string","applicable_components": ["strings"],"shared_functionality": "string","reuse_approach": "string","evidence": ["strings"],"effort_impact_ratio": {"effort": "high|medium|low","impact": "high|medium|low","priority": "string"}}],"service_consolidation": [{"pattern": "string","mergeable_components": ["strings"],"unified_service": "string","consolidation_approach": "string","evidence": ["strings"],"effort_impact_ratio": {"effort": "high|medium|low","impact": "high|medium|low","priority": "string"}}],"abstraction_opportunities": [{"pattern": "string","current_implementations": ["strings"],"proposed_utility": "string","abstraction_approach": "string","evidence": ["strings"],"effort_impact_ratio": {"effort": "high|medium|low","impact": "high|medium|low","priority": "string"}}]}}
+{"cross_guideline_optimization_opportunities": {"task_environment_alignments": [{"pattern": "string", "affected_domains": ["strings"], "optimization_target": "string", "optimization_approach": "string", "evidence": ["strings"], "effort_impact_ratio": {"effort": "high|medium|low", "impact": "high|medium|low", "priority": "string"}}], "environment_data_alignments": [{"pattern": "string", "affected_domains": ["strings"], "optimization_target": "string", "optimization_approach": "string", "evidence": ["strings"], "effort_impact_ratio": {"effort": "high|medium|low", "impact": "high|medium|low", "priority": "string"}}], "data_component_alignments": [{"pattern": "string", "affected_domains": ["strings"], "optimization_target": "string", "optimization_approach": "string", "evidence": ["strings"], "effort_impact_ratio": {"effort": "high|medium|low", "impact": "high|medium|low", "priority": "string"}}], "component_dependency_alignments": [{"pattern": "string", "affected_domains": ["strings"], "optimization_target": "string", "optimization_approach": "string", "evidence": ["strings"], "effort_impact_ratio": {"effort": "high|medium|low", "impact": "high|medium|low", "priority": "string"}}], "cross_cutting_optimizations": [{"pattern": "string", "affected_domains": ["strings"], "optimization_target": "string", "optimization_approach": "string", "evidence": ["strings"], "effort_impact_ratio": {"effort": "high|medium|low", "impact": "high|medium|low", "priority": "string"}}], "redundancy_reductions": [{"pattern": "string", "affected_domains": ["strings"], "redundant_elements": ["strings"], "consolidation_approach": "string", "evidence": ["strings"], "effort_impact_ratio": {"effort": "high|medium|low", "impact": "high|medium|low", "priority": "string"}}], "synthesis": {"key_cross_guideline_patterns": ["strings"], "prioritized_optimization_strategy": [{"domain_intersection": "string", "strategy": "string", "affected_guidelines": ["strings"], "justification": "string"}], "holistic_recommendations": ["strings"]}}}
 ```
+
+## Field Descriptions
+
+### Task-Environment Alignments
+- **pattern**: Specific optimization pattern between task elaboration and environment requirements
+- **affected_domains**: Guideline domains affected by this optimization
+- **optimization_target**: Specific target for optimization
+- **optimization_approach**: Proposed approach to optimize alignment
+- **evidence**: Specific evidence from guidelines supporting this opportunity
+- **effort_impact_ratio**: Assessment of implementation effort vs. architectural impact
+
+### Environment-Data Alignments
+- **pattern**: Specific optimization pattern between environment requirements and data flow
+- **affected_domains**: Guideline domains affected by this optimization
+- **optimization_target**: Specific target for optimization
+- **optimization_approach**: Proposed approach to optimize alignment
+- **evidence**: Specific evidence from guidelines supporting this opportunity
+- **effort_impact_ratio**: Assessment of implementation effort vs. architectural impact
+
+### Data-Component Alignments
+- **pattern**: Specific optimization pattern between data flow and component structure
+- **affected_domains**: Guideline domains affected by this optimization
+- **optimization_target**: Specific target for optimization
+- **optimization_approach**: Proposed approach to optimize alignment
+- **evidence**: Specific evidence from guidelines supporting this opportunity
+- **effort_impact_ratio**: Assessment of implementation effort vs. architectural impact
+
+### Component-Dependency Alignments
+- **pattern**: Specific optimization pattern between component structure and dependencies
+- **affected_domains**: Guideline domains affected by this optimization
+- **optimization_target**: Specific target for optimization
+- **optimization_approach**: Proposed approach to optimize alignment
+- **evidence**: Specific evidence from guidelines supporting this opportunity
+- **effort_impact_ratio**: Assessment of implementation effort vs. architectural impact
+
+### Cross-Cutting Optimizations
+- **pattern**: Optimization pattern that spans three or more guideline domains
+- **affected_domains**: Guideline domains affected by this optimization
+- **optimization_target**: Specific target for optimization
+- **optimization_approach**: Proposed approach to optimize alignment
+- **evidence**: Specific evidence from guidelines supporting this opportunity
+- **effort_impact_ratio**: Assessment of implementation effort vs. architectural impact
+
+### Redundancy Reductions
+- **pattern**: Pattern of redundant concepts across guideline domains
+- **affected_domains**: Guideline domains containing redundancies
+- **redundant_elements**: Specific redundant elements identified
+- **consolidation_approach**: Approach to consolidate redundancies
+- **evidence**: Specific evidence of redundancy from guidelines
+- **effort_impact_ratio**: Assessment of implementation effort vs. architectural impact
+
+### Synthesis
+- **key_cross_guideline_patterns**: Key patterns identified across multiple guideline domains
+- **prioritized_optimization_strategy**: Prioritized approach to implementing optimizations
+- **holistic_recommendations**: System-wide recommendations spanning all guideline domains
 
 ## Analysis Principles
 
-1. Only flag optimizations that provide clear value
-2. Focus on patterns with concrete evidence
-3. Identify reuse that simplifies architecture
-4. Consider impact on component relationships
+1. Only flag optimizations that provide clear value across guideline domains
+2. Focus on patterns with concrete evidence from guideline outputs
+3. Identify optimizations that increase guideline alignment
+4. Consider impact on overall system architecture
+5. Balance optimization benefits with implementation complexity
+6. Prioritize high-impact, low-effort opportunities
+7. Identify recurring patterns across guideline domains
 
 ## Key Considerations
 
-When analyzing components, check for:
-- Similar functionality across components
-- Repeated implementation patterns
-- Common service requirements
-- Standard utility functions
+When analyzing guidelines, check for:
+- Misalignments between task requirements and environment specifications
+- Inconsistencies between data flow patterns and environmental requirements
+- Disconnects between data entities and component interfaces
+- Gaps between component structures and data flows
+- Dependency issues between components and their implementation needs
+- Redundant concepts defined across multiple guideline domains
+- Opportunities to enhance integration between guideline domains
+- System-wide patterns that could be optimized holistically
 """
 
-phase_one_structural_component_analysis_schema = {
+phase_one_cross_guideline_optimization_analysis_schema = {
   "type": "object",
   "properties": {
-    "component_optimization_opportunities": {
+    "cross_guideline_optimization_opportunities": {
       "type": "object",
       "properties": {
-        "redundant_implementations": {
+        "task_environment_alignments": {
           "type": "array",
           "items": {
             "type": "object",
@@ -71,14 +149,14 @@ phase_one_structural_component_analysis_schema = {
                 "type": "string",
                 "minLength": 1
               },
-              "affected_components": {
+              "affected_domains": {
                 "type": "array",
                 "items": {
                   "type": "string"
                 },
                 "minItems": 1
               },
-              "common_functionality": {
+              "optimization_target": {
                 "type": "string",
                 "minLength": 1
               },
@@ -112,17 +190,10 @@ phase_one_structural_component_analysis_schema = {
                 "required": ["effort", "impact", "priority"]
               }
             },
-            "required": [
-              "pattern",
-              "affected_components",
-              "common_functionality",
-              "optimization_approach",
-              "evidence",
-              "effort_impact_ratio"
-            ]
+            "required": ["pattern", "affected_domains", "optimization_target", "optimization_approach", "evidence", "effort_impact_ratio"]
           }
         },
-        "reuse_opportunities": {
+        "environment_data_alignments": {
           "type": "array",
           "items": {
             "type": "object",
@@ -131,18 +202,18 @@ phase_one_structural_component_analysis_schema = {
                 "type": "string",
                 "minLength": 1
               },
-              "applicable_components": {
+              "affected_domains": {
                 "type": "array",
                 "items": {
                   "type": "string"
                 },
                 "minItems": 1
               },
-              "shared_functionality": {
+              "optimization_target": {
                 "type": "string",
                 "minLength": 1
               },
-              "reuse_approach": {
+              "optimization_approach": {
                 "type": "string",
                 "minLength": 1
               },
@@ -172,17 +243,10 @@ phase_one_structural_component_analysis_schema = {
                 "required": ["effort", "impact", "priority"]
               }
             },
-            "required": [
-              "pattern",
-              "applicable_components",
-              "shared_functionality",
-              "reuse_approach",
-              "evidence",
-              "effort_impact_ratio"
-            ]
+            "required": ["pattern", "affected_domains", "optimization_target", "optimization_approach", "evidence", "effort_impact_ratio"]
           }
         },
-        "service_consolidation": {
+        "data_component_alignments": {
           "type": "array",
           "items": {
             "type": "object",
@@ -191,16 +255,178 @@ phase_one_structural_component_analysis_schema = {
                 "type": "string",
                 "minLength": 1
               },
-              "mergeable_components": {
+              "affected_domains": {
                 "type": "array",
                 "items": {
                   "type": "string"
                 },
                 "minItems": 1
               },
-              "unified_service": {
+              "optimization_target": {
                 "type": "string",
                 "minLength": 1
+              },
+              "optimization_approach": {
+                "type": "string",
+                "minLength": 1
+              },
+              "evidence": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1
+              },
+              "effort_impact_ratio": {
+                "type": "object",
+                "properties": {
+                  "effort": {
+                    "type": "string",
+                    "enum": ["high", "medium", "low"]
+                  },
+                  "impact": {
+                    "type": "string",
+                    "enum": ["high", "medium", "low"]
+                  },
+                  "priority": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": ["effort", "impact", "priority"]
+              }
+            },
+            "required": ["pattern", "affected_domains", "optimization_target", "optimization_approach", "evidence", "effort_impact_ratio"]
+          }
+        },
+        "component_dependency_alignments": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "pattern": {
+                "type": "string",
+                "minLength": 1
+              },
+              "affected_domains": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1
+              },
+              "optimization_target": {
+                "type": "string",
+                "minLength": 1
+              },
+              "optimization_approach": {
+                "type": "string",
+                "minLength": 1
+              },
+              "evidence": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1
+              },
+              "effort_impact_ratio": {
+                "type": "object",
+                "properties": {
+                  "effort": {
+                    "type": "string",
+                    "enum": ["high", "medium", "low"]
+                  },
+                  "impact": {
+                    "type": "string",
+                    "enum": ["high", "medium", "low"]
+                  },
+                  "priority": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": ["effort", "impact", "priority"]
+              }
+            },
+            "required": ["pattern", "affected_domains", "optimization_target", "optimization_approach", "evidence", "effort_impact_ratio"]
+          }
+        },
+        "cross_cutting_optimizations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "pattern": {
+                "type": "string",
+                "minLength": 1
+              },
+              "affected_domains": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1
+              },
+              "optimization_target": {
+                "type": "string",
+                "minLength": 1
+              },
+              "optimization_approach": {
+                "type": "string",
+                "minLength": 1
+              },
+              "evidence": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1
+              },
+              "effort_impact_ratio": {
+                "type": "object",
+                "properties": {
+                  "effort": {
+                    "type": "string",
+                    "enum": ["high", "medium", "low"]
+                  },
+                  "impact": {
+                    "type": "string",
+                    "enum": ["high", "medium", "low"]
+                  },
+                  "priority": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": ["effort", "impact", "priority"]
+              }
+            },
+            "required": ["pattern", "affected_domains", "optimization_target", "optimization_approach", "evidence", "effort_impact_ratio"]
+          }
+        },
+        "redundancy_reductions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "pattern": {
+                "type": "string",
+                "minLength": 1
+              },
+              "affected_domains": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1
+              },
+              "redundant_elements": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1
               },
               "consolidation_approach": {
                 "type": "string",
@@ -232,108 +458,86 @@ phase_one_structural_component_analysis_schema = {
                 "required": ["effort", "impact", "priority"]
               }
             },
-            "required": [
-              "pattern",
-              "mergeable_components",
-              "unified_service",
-              "consolidation_approach",
-              "evidence",
-              "effort_impact_ratio"
-            ]
+            "required": ["pattern", "affected_domains", "redundant_elements", "consolidation_approach", "evidence", "effort_impact_ratio"]
           }
         },
-        "abstraction_opportunities": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "pattern": {
-                "type": "string",
-                "minLength": 1
+        "synthesis": {
+          "type": "object",
+          "properties": {
+            "key_cross_guideline_patterns": {
+              "type": "array",
+              "items": {
+                "type": "string"
               },
-              "current_implementations": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                },
-                "minItems": 1
-              },
-              "proposed_utility": {
-                "type": "string",
-                "minLength": 1
-              },
-              "abstraction_approach": {
-                "type": "string",
-                "minLength": 1
-              },
-              "evidence": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                },
-                "minItems": 1
-              },
-              "effort_impact_ratio": {
+              "minItems": 1
+            },
+            "prioritized_optimization_strategy": {
+              "type": "array",
+              "items": {
                 "type": "object",
                 "properties": {
-                  "effort": {
+                  "domain_intersection": {
                     "type": "string",
-                    "enum": ["high", "medium", "low"]
+                    "minLength": 1
                   },
-                  "impact": {
+                  "strategy": {
                     "type": "string",
-                    "enum": ["high", "medium", "low"]
+                    "minLength": 1
                   },
-                  "priority": {
+                  "affected_guidelines": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    },
+                    "minItems": 1
+                  },
+                  "justification": {
                     "type": "string",
                     "minLength": 1
                   }
                 },
-                "required": ["effort", "impact", "priority"]
-              }
+                "required": ["domain_intersection", "strategy", "affected_guidelines", "justification"]
+              },
+              "minItems": 1
             },
-            "required": [
-              "pattern",
-              "current_implementations",
-              "proposed_utility",
-              "abstraction_approach",
-              "evidence",
-              "effort_impact_ratio"
-            ]
-          }
+            "holistic_recommendations": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "minItems": 1
+            }
+          },
+          "required": ["key_cross_guideline_patterns", "prioritized_optimization_strategy", "holistic_recommendations"]
         }
       },
-      "required": [
-        "redundant_implementations",
-        "reuse_opportunities",
-        "service_consolidation",
-        "abstraction_opportunities"
-      ]
+      "required": ["task_environment_alignments", "environment_data_alignments", "data_component_alignments", "component_dependency_alignments", "cross_cutting_optimizations", "redundancy_reductions", "synthesis"]
     }
   },
-  "required": ["component_optimization_opportunities"]
+  "required": ["cross_guideline_optimization_opportunities"]
 }
 
-# Structural Component Analysis Reflection
-structural_component_analysis_reflection_prompt = """
+# Cross-Guideline Optimization Analysis Reflection
+cross_guideline_optimization_reflection_prompt = """
 # Pollinator Agent Reflection Prompt
 
-You are the Pollinator Agent Reflection system, responsible for validating and critiquing the component optimization analysis produced by the Pollinator Agent. Your role is to identify potential issues, omissions, or misanalyses in the optimization assessment, ensuring that architectural improvements are accurately evaluated for their value and feasibility.
+You are the Pollinator Agent Reflection system, responsible for validating and critiquing the cross-guideline optimization analysis produced by the Pollinator Agent. Your role is to identify potential issues, omissions, or misanalyses in the optimization assessment, ensuring that cross-guideline architectural improvements are accurately evaluated for their value and feasibility.
 
 ## Core Responsibilities
-1. Validate the accuracy of identified optimization opportunities
+1. Validate the accuracy of identified cross-guideline optimization opportunities
 2. Detect potential false positives where optimizations are overstated
 3. Identify missing opportunities that should have been detected
 4. Verify that evidence properly supports each identified opportunity
 5. Assess the realism of effort-impact ratios
 6. Ensure analysis maintains a holistic architectural perspective
+7. Evaluate the synthesis of optimization recommendations
 
 ## Output Format
 
 Provide your reflection in the following JSON format:
 
 ```json
-{"reflection_results": {"analysis_accuracy": {"false_positives": [{"opportunity_type": "redundant_implementation|reuse_opportunity|service_consolidation|abstraction_opportunity","pattern": "string","reasoning": "string"}],"missing_opportunities": [{"opportunity_type": "redundant_implementation|reuse_opportunity|service_consolidation|abstraction_opportunity","pattern": "string","affected_components": ["strings"],"evidence": ["strings"]}]},"evidence_quality": {"insufficient_evidence": [{"opportunity_type": "redundant_implementation|reuse_opportunity|service_consolidation|abstraction_opportunity","pattern": "string","evidence_gap": "string"}],"misinterpreted_evidence": [{"opportunity_type": "redundant_implementation|reuse_opportunity|service_consolidation|abstraction_opportunity","pattern": "string","correct_interpretation": "string"}]},"effort_impact_assessment": {"effort_reassessment": [{"opportunity_type": "redundant_implementation|reuse_opportunity|service_consolidation|abstraction_opportunity","pattern": "string","current_rating": "high|medium|low","suggested_rating": "high|medium|low","justification": "string"}],"impact_reassessment": [{"opportunity_type": "redundant_implementation|reuse_opportunity|service_consolidation|abstraction_opportunity","pattern": "string","current_rating": "high|medium|low","suggested_rating": "high|medium|low","justification": "string"}],"priority_reassessment": [{"opportunity_type": "redundant_implementation|reuse_opportunity|service_consolidation|abstraction_opportunity","pattern": "string","current_priority": "string","suggested_priority": "string","justification": "string"}]},"optimization_approach": {"approach_issues": [{"opportunity_type": "redundant_implementation|reuse_opportunity|service_consolidation|abstraction_opportunity","pattern": "string","issue": "string","recommendation": "string"}],"dependency_concerns": [{"opportunity_type": "redundant_implementation|reuse_opportunity|service_consolidation|abstraction_opportunity","pattern": "string","concern": "string","recommendation": "string"}],"implementation_risks": [{"opportunity_type": "redundant_implementation|reuse_opportunity|service_consolidation|abstraction_opportunity","pattern": "string","risk": "string","recommendation": "string"}]}}}
+{"reflection_results": {"analysis_accuracy": {"false_positives": [{"domain_alignment": "task_environment|environment_data|data_component|component_dependency|cross_cutting|redundancy_reduction","pattern": "string","reasoning": "string"}],"missing_opportunities": [{"domain_alignment": "task_environment|environment_data|data_component|component_dependency|cross_cutting|redundancy_reduction","pattern": "string","affected_domains": ["strings"],"evidence": ["strings"]}]},"evidence_quality": {"insufficient_evidence": [{"domain_alignment": "task_environment|environment_data|data_component|component_dependency|cross_cutting|redundancy_reduction","pattern": "string","evidence_gap": "string"}],"misinterpreted_evidence": [{"domain_alignment": "task_environment|environment_data|data_component|component_dependency|cross_cutting|redundancy_reduction","pattern": "string","correct_interpretation": "string"}]},"effort_impact_assessment": {"effort_reassessment": [{"domain_alignment": "task_environment|environment_data|data_component|component_dependency|cross_cutting|redundancy_reduction","pattern": "string","current_rating": "high|medium|low","suggested_rating": "high|medium|low","justification": "string"}],"impact_reassessment": [{"domain_alignment": "task_environment|environment_data|data_component|component_dependency|cross_cutting|redundancy_reduction","pattern": "string","current_rating": "high|medium|low","suggested_rating": "high|medium|low","justification": "string"}],"priority_reassessment": [{"domain_alignment": "task_environment|environment_data|data_component|component_dependency|cross_cutting|redundancy_reduction","pattern": "string","current_priority": "string","suggested_priority": "string","justification": "string"}]},"optimization_approach": {"approach_issues": [{"domain_alignment": "task_environment|environment_data|data_component|component_dependency|cross_cutting|redundancy_reduction","pattern": "string","issue": "string","recommendation": "string"}],"alignment_concerns": [{"domain_alignment": "task_environment|environment_data|data_component|component_dependency|cross_cutting|redundancy_reduction","pattern": "string","concern": "string","recommendation": "string"}],"implementation_risks": [{"domain_alignment": "task_environment|environment_data|data_component|component_dependency|cross_cutting|redundancy_reduction","pattern": "string","risk": "string","recommendation": "string"}]},"synthesis_assessment": {"comprehensiveness": {"rating": "high|medium|low","justification": "string","improvement_areas": ["strings"]},"strategic_alignment": {"rating": "high|medium|low","justification": "string","improvement_areas": ["strings"]},"prioritization_effectiveness": {"rating": "high|medium|low","justification": "string","improvement_areas": ["strings"]}}}}
 ```
 
 ## Field Descriptions
@@ -353,32 +557,39 @@ Provide your reflection in the following JSON format:
 
 ### Optimization Approach
 - **approach_issues**: Problems with the proposed optimization approaches
-- **dependency_concerns**: Potential dependency issues that may arise from optimizations
+- **alignment_concerns**: Concerns about alignment between guidelines
 - **implementation_risks**: Risks that may impact implementation success
+
+### Synthesis Assessment
+- **comprehensiveness**: Assessment of synthesis coverage across all optimization domains
+- **strategic_alignment**: Evaluation of how well the strategy aligns with overall architecture
+- **prioritization_effectiveness**: Assessment of optimization prioritization effectiveness
 
 ## Guidelines
 
-1. Focus on the technical accuracy of optimization identification
+1. Focus on the technical accuracy of cross-guideline optimization identification
 2. Assess if evidence truly supports each identified opportunity
 3. Evaluate if effort-impact assessments are realistic
-4. Consider dependencies and architectural constraints
+4. Consider alignments between guideline domains
 5. Determine if optimization approaches are feasible
+6. Evaluate the comprehensiveness of the synthesis
+7. Assess the prioritization of optimization opportunities
 
 ## Verification Checklist
 
-1. Do identified redundant implementations genuinely represent duplicate functionality?
-2. Are reuse opportunities practical given component responsibilities?
-3. Do service consolidation suggestions maintain appropriate separation of concerns?
-4. Are abstraction opportunities balancing reuse with complexity?
-5. Is there sufficient evidence for each identified opportunity?
-6. Are effort ratings realistic given the technical complexity?
-7. Are impact ratings aligned with architectural benefits?
-8. Are there subtle optimization opportunities that were missed?
-9. Do optimization approaches account for dependency changes?
-10. Are priorities properly assigned based on both effort and impact?
+1. Do identified alignments genuinely represent optimization opportunities?
+2. Are the affected domains correctly identified?
+3. Is the evidence specific and directly supporting the optimization opportunity?
+4. Are effort ratings realistic given the technical complexity?
+5. Are impact ratings aligned with architectural benefits?
+6. Are there subtle optimization opportunities that were missed?
+7. Do optimization approaches account for cross-guideline impacts?
+8. Are priorities properly assigned based on both effort and impact?
+9. Does the synthesis provide a coherent optimization strategy?
+10. Are the holistic recommendations comprehensive and well-justified?
 """
 
-structural_component_analysis_reflection_schema = {
+cross_guideline_optimization_reflection_schema = {
   "type": "object",
   "properties": {
     "reflection_results": {
@@ -392,9 +603,16 @@ structural_component_analysis_reflection_schema = {
               "items": {
                 "type": "object",
                 "properties": {
-                  "opportunity_type": {
+                  "domain_alignment": {
                     "type": "string",
-                    "enum": ["redundant_implementation", "reuse_opportunity", "service_consolidation", "abstraction_opportunity"]
+                    "enum": [
+                      "task_environment",
+                      "environment_data",
+                      "data_component",
+                      "component_dependency",
+                      "cross_cutting",
+                      "redundancy_reduction"
+                    ]
                   },
                   "pattern": {
                     "type": "string"
@@ -403,7 +621,7 @@ structural_component_analysis_reflection_schema = {
                     "type": "string"
                   }
                 },
-                "required": ["opportunity_type", "pattern", "reasoning"]
+                "required": ["domain_alignment", "pattern", "reasoning"]
               }
             },
             "missing_opportunities": {
@@ -411,14 +629,21 @@ structural_component_analysis_reflection_schema = {
               "items": {
                 "type": "object",
                 "properties": {
-                  "opportunity_type": {
+                  "domain_alignment": {
                     "type": "string",
-                    "enum": ["redundant_implementation", "reuse_opportunity", "service_consolidation", "abstraction_opportunity"]
+                    "enum": [
+                      "task_environment",
+                      "environment_data",
+                      "data_component",
+                      "component_dependency",
+                      "cross_cutting",
+                      "redundancy_reduction"
+                    ]
                   },
                   "pattern": {
                     "type": "string"
                   },
-                  "affected_components": {
+                  "affected_domains": {
                     "type": "array",
                     "items": {
                       "type": "string"
@@ -431,7 +656,7 @@ structural_component_analysis_reflection_schema = {
                     }
                   }
                 },
-                "required": ["opportunity_type", "pattern", "affected_components", "evidence"]
+                "required": ["domain_alignment", "pattern", "affected_domains", "evidence"]
               }
             }
           },
@@ -445,9 +670,16 @@ structural_component_analysis_reflection_schema = {
               "items": {
                 "type": "object",
                 "properties": {
-                  "opportunity_type": {
+                  "domain_alignment": {
                     "type": "string",
-                    "enum": ["redundant_implementation", "reuse_opportunity", "service_consolidation", "abstraction_opportunity"]
+                    "enum": [
+                      "task_environment",
+                      "environment_data",
+                      "data_component",
+                      "component_dependency",
+                      "cross_cutting",
+                      "redundancy_reduction"
+                    ]
                   },
                   "pattern": {
                     "type": "string"
@@ -456,7 +688,7 @@ structural_component_analysis_reflection_schema = {
                     "type": "string"
                   }
                 },
-                "required": ["opportunity_type", "pattern", "evidence_gap"]
+                "required": ["domain_alignment", "pattern", "evidence_gap"]
               }
             },
             "misinterpreted_evidence": {
@@ -464,9 +696,16 @@ structural_component_analysis_reflection_schema = {
               "items": {
                 "type": "object",
                 "properties": {
-                  "opportunity_type": {
+                  "domain_alignment": {
                     "type": "string",
-                    "enum": ["redundant_implementation", "reuse_opportunity", "service_consolidation", "abstraction_opportunity"]
+                    "enum": [
+                      "task_environment",
+                      "environment_data",
+                      "data_component",
+                      "component_dependency",
+                      "cross_cutting",
+                      "redundancy_reduction"
+                    ]
                   },
                   "pattern": {
                     "type": "string"
@@ -475,7 +714,7 @@ structural_component_analysis_reflection_schema = {
                     "type": "string"
                   }
                 },
-                "required": ["opportunity_type", "pattern", "correct_interpretation"]
+                "required": ["domain_alignment", "pattern", "correct_interpretation"]
               }
             }
           },
@@ -489,9 +728,16 @@ structural_component_analysis_reflection_schema = {
               "items": {
                 "type": "object",
                 "properties": {
-                  "opportunity_type": {
+                  "domain_alignment": {
                     "type": "string",
-                    "enum": ["redundant_implementation", "reuse_opportunity", "service_consolidation", "abstraction_opportunity"]
+                    "enum": [
+                      "task_environment",
+                      "environment_data",
+                      "data_component",
+                      "component_dependency",
+                      "cross_cutting",
+                      "redundancy_reduction"
+                    ]
                   },
                   "pattern": {
                     "type": "string"
@@ -508,7 +754,7 @@ structural_component_analysis_reflection_schema = {
                     "type": "string"
                   }
                 },
-                "required": ["opportunity_type", "pattern", "current_rating", "suggested_rating", "justification"]
+                "required": ["domain_alignment", "pattern", "current_rating", "suggested_rating", "justification"]
               }
             },
             "impact_reassessment": {
@@ -516,9 +762,16 @@ structural_component_analysis_reflection_schema = {
               "items": {
                 "type": "object",
                 "properties": {
-                  "opportunity_type": {
+                  "domain_alignment": {
                     "type": "string",
-                    "enum": ["redundant_implementation", "reuse_opportunity", "service_consolidation", "abstraction_opportunity"]
+                    "enum": [
+                      "task_environment",
+                      "environment_data",
+                      "data_component",
+                      "component_dependency",
+                      "cross_cutting",
+                      "redundancy_reduction"
+                    ]
                   },
                   "pattern": {
                     "type": "string"
@@ -535,7 +788,7 @@ structural_component_analysis_reflection_schema = {
                     "type": "string"
                   }
                 },
-                "required": ["opportunity_type", "pattern", "current_rating", "suggested_rating", "justification"]
+                "required": ["domain_alignment", "pattern", "current_rating", "suggested_rating", "justification"]
               }
             },
             "priority_reassessment": {
@@ -543,9 +796,16 @@ structural_component_analysis_reflection_schema = {
               "items": {
                 "type": "object",
                 "properties": {
-                  "opportunity_type": {
+                  "domain_alignment": {
                     "type": "string",
-                    "enum": ["redundant_implementation", "reuse_opportunity", "service_consolidation", "abstraction_opportunity"]
+                    "enum": [
+                      "task_environment",
+                      "environment_data",
+                      "data_component",
+                      "component_dependency",
+                      "cross_cutting",
+                      "redundancy_reduction"
+                    ]
                   },
                   "pattern": {
                     "type": "string"
@@ -560,7 +820,7 @@ structural_component_analysis_reflection_schema = {
                     "type": "string"
                   }
                 },
-                "required": ["opportunity_type", "pattern", "current_priority", "suggested_priority", "justification"]
+                "required": ["domain_alignment", "pattern", "current_priority", "suggested_priority", "justification"]
               }
             }
           },
@@ -574,9 +834,16 @@ structural_component_analysis_reflection_schema = {
               "items": {
                 "type": "object",
                 "properties": {
-                  "opportunity_type": {
+                  "domain_alignment": {
                     "type": "string",
-                    "enum": ["redundant_implementation", "reuse_opportunity", "service_consolidation", "abstraction_opportunity"]
+                    "enum": [
+                      "task_environment",
+                      "environment_data",
+                      "data_component",
+                      "component_dependency",
+                      "cross_cutting",
+                      "redundancy_reduction"
+                    ]
                   },
                   "pattern": {
                     "type": "string"
@@ -588,17 +855,24 @@ structural_component_analysis_reflection_schema = {
                     "type": "string"
                   }
                 },
-                "required": ["opportunity_type", "pattern", "issue", "recommendation"]
+                "required": ["domain_alignment", "pattern", "issue", "recommendation"]
               }
             },
-            "dependency_concerns": {
+            "alignment_concerns": {
               "type": "array",
               "items": {
                 "type": "object",
                 "properties": {
-                  "opportunity_type": {
+                  "domain_alignment": {
                     "type": "string",
-                    "enum": ["redundant_implementation", "reuse_opportunity", "service_consolidation", "abstraction_opportunity"]
+                    "enum": [
+                      "task_environment",
+                      "environment_data",
+                      "data_component",
+                      "component_dependency",
+                      "cross_cutting",
+                      "redundancy_reduction"
+                    ]
                   },
                   "pattern": {
                     "type": "string"
@@ -610,7 +884,7 @@ structural_component_analysis_reflection_schema = {
                     "type": "string"
                   }
                 },
-                "required": ["opportunity_type", "pattern", "concern", "recommendation"]
+                "required": ["domain_alignment", "pattern", "concern", "recommendation"]
               }
             },
             "implementation_risks": {
@@ -618,9 +892,16 @@ structural_component_analysis_reflection_schema = {
               "items": {
                 "type": "object",
                 "properties": {
-                  "opportunity_type": {
+                  "domain_alignment": {
                     "type": "string",
-                    "enum": ["redundant_implementation", "reuse_opportunity", "service_consolidation", "abstraction_opportunity"]
+                    "enum": [
+                      "task_environment",
+                      "environment_data",
+                      "data_component",
+                      "component_dependency",
+                      "cross_cutting",
+                      "redundancy_reduction"
+                    ]
                   },
                   "pattern": {
                     "type": "string"
@@ -632,84 +913,157 @@ structural_component_analysis_reflection_schema = {
                     "type": "string"
                   }
                 },
-                "required": ["opportunity_type", "pattern", "risk", "recommendation"]
+                "required": ["domain_alignment", "pattern", "risk", "recommendation"]
               }
             }
           },
-          "required": ["approach_issues", "dependency_concerns", "implementation_risks"]
+          "required": ["approach_issues", "alignment_concerns", "implementation_risks"]
+        },
+        "synthesis_assessment": {
+          "type": "object",
+          "properties": {
+            "comprehensiveness": {
+              "type": "object",
+              "properties": {
+                "rating": {
+                  "type": "string",
+                  "enum": ["high", "medium", "low"]
+                },
+                "justification": {
+                  "type": "string"
+                },
+                "improvement_areas": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": ["rating", "justification", "improvement_areas"]
+            },
+            "strategic_alignment": {
+              "type": "object",
+              "properties": {
+                "rating": {
+                  "type": "string",
+                  "enum": ["high", "medium", "low"]
+                },
+                "justification": {
+                  "type": "string"
+                },
+                "improvement_areas": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": ["rating", "justification", "improvement_areas"]
+            },
+            "prioritization_effectiveness": {
+              "type": "object",
+              "properties": {
+                "rating": {
+                  "type": "string",
+                  "enum": ["high", "medium", "low"]
+                },
+                "justification": {
+                  "type": "string"
+                },
+                "improvement_areas": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": ["rating", "justification", "improvement_areas"]
+            }
+          },
+          "required": ["comprehensiveness", "strategic_alignment", "prioritization_effectiveness"]
         }
       },
-      "required": ["analysis_accuracy", "evidence_quality", "effort_impact_assessment", "optimization_approach"]
+      "required": ["analysis_accuracy", "evidence_quality", "effort_impact_assessment", "optimization_approach", "synthesis_assessment"]
     }
   },
   "required": ["reflection_results"]
 }
 
-# Structural Component Analysis Revision
-structural_component_analysis_revision_prompt = """
+# Cross-Guideline Optimization Analysis Revision
+cross_guideline_optimization_revision_prompt = """
 # Pollinator Agent Revision Prompt
 
-You are the Pollinator Agent processing reflection results to implement self-corrections to your initial component optimization analysis. Your role is to systematically address identified issues from the reflection phase, refining your analysis of optimization opportunities to ensure both accuracy and feasibility.
+You are the Pollinator Agent processing reflection results to implement self-corrections to your cross-guideline optimization analysis. Your role is to systematically address identified issues from the reflection phase, refining your analysis of optimization opportunities across phase one guidelines to ensure both accuracy and feasibility.
 
 ## Core Responsibilities
-1. Process reflection feedback on your initial optimization analysis
+1. Process reflection feedback on your cross-guideline optimization analysis
 2. Remove incorrectly identified opportunities (false positives)
 3. Add overlooked opportunities that were missed
 4. Strengthen evidence for legitimate opportunities
 5. Adjust effort-impact assessments to be more realistic
 6. Refine optimization approaches to address identified concerns
-7. Maintain a holistic architectural perspective
+7. Improve the synthesis and prioritization of optimization recommendations
+8. Maintain a holistic architectural perspective
 
 ## Input Format
 
 You will receive two inputs:
-1. Your original component optimization analysis output
+1. Your original cross-guideline optimization analysis output
 2. Reflection results in the following structure:
 ```json
-{"reflection_results": {"analysis_accuracy": {"false_positives": [{"opportunity_type": "redundant_implementation|reuse_opportunity|service_consolidation|abstraction_opportunity","pattern": "string","reasoning": "string"}],"missing_opportunities": [{"opportunity_type": "redundant_implementation|reuse_opportunity|service_consolidation|abstraction_opportunity","pattern": "string","affected_components": ["strings"],"evidence": ["strings"]}]},"evidence_quality": {"insufficient_evidence": [{"opportunity_type": "redundant_implementation|reuse_opportunity|service_consolidation|abstraction_opportunity","pattern": "string","evidence_gap": "string"}],"misinterpreted_evidence": [{"opportunity_type": "redundant_implementation|reuse_opportunity|service_consolidation|abstraction_opportunity","pattern": "string","correct_interpretation": "string"}]},"effort_impact_assessment": {"effort_reassessment": [{"opportunity_type": "redundant_implementation|reuse_opportunity|service_consolidation|abstraction_opportunity","pattern": "string","current_rating": "high|medium|low","suggested_rating": "high|medium|low","justification": "string"}],"impact_reassessment": [{"opportunity_type": "redundant_implementation|reuse_opportunity|service_consolidation|abstraction_opportunity","pattern": "string","current_rating": "high|medium|low","suggested_rating": "high|medium|low","justification": "string"}],"priority_reassessment": [{"opportunity_type": "redundant_implementation|reuse_opportunity|service_consolidation|abstraction_opportunity","pattern": "string","current_priority": "string","suggested_priority": "string","justification": "string"}]},"optimization_approach": {"approach_issues": [{"opportunity_type": "redundant_implementation|reuse_opportunity|service_consolidation|abstraction_opportunity","pattern": "string","issue": "string","recommendation": "string"}],"dependency_concerns": [{"opportunity_type": "redundant_implementation|reuse_opportunity|service_consolidation|abstraction_opportunity","pattern": "string","concern": "string","recommendation": "string"}],"implementation_risks": [{"opportunity_type": "redundant_implementation|reuse_opportunity|service_consolidation|abstraction_opportunity","pattern": "string","risk": "string","recommendation": "string"}]}}}
+{"reflection_results": {"analysis_accuracy": {"false_positives": [{"domain_alignment": "task_environment|environment_data|data_component|component_dependency|cross_cutting|redundancy_reduction","pattern": "string","reasoning": "string"}],"missing_opportunities": [{"domain_alignment": "task_environment|environment_data|data_component|component_dependency|cross_cutting|redundancy_reduction","pattern": "string","affected_domains": ["strings"],"evidence": ["strings"]}]},"evidence_quality": {"insufficient_evidence": [{"domain_alignment": "task_environment|environment_data|data_component|component_dependency|cross_cutting|redundancy_reduction","pattern": "string","evidence_gap": "string"}],"misinterpreted_evidence": [{"domain_alignment": "task_environment|environment_data|data_component|component_dependency|cross_cutting|redundancy_reduction","pattern": "string","correct_interpretation": "string"}]},"effort_impact_assessment": {"effort_reassessment": [{"domain_alignment": "task_environment|environment_data|data_component|component_dependency|cross_cutting|redundancy_reduction","pattern": "string","current_rating": "high|medium|low","suggested_rating": "high|medium|low","justification": "string"}],"impact_reassessment": [{"domain_alignment": "task_environment|environment_data|data_component|component_dependency|cross_cutting|redundancy_reduction","pattern": "string","current_rating": "high|medium|low","suggested_rating": "high|medium|low","justification": "string"}],"priority_reassessment": [{"domain_alignment": "task_environment|environment_data|data_component|component_dependency|cross_cutting|redundancy_reduction","pattern": "string","current_priority": "string","suggested_priority": "string","justification": "string"}]},"optimization_approach": {"approach_issues": [{"domain_alignment": "task_environment|environment_data|data_component|component_dependency|cross_cutting|redundancy_reduction","pattern": "string","issue": "string","recommendation": "string"}],"alignment_concerns": [{"domain_alignment": "task_environment|environment_data|data_component|component_dependency|cross_cutting|redundancy_reduction","pattern": "string","concern": "string","recommendation": "string"}],"implementation_risks": [{"domain_alignment": "task_environment|environment_data|data_component|component_dependency|cross_cutting|redundancy_reduction","pattern": "string","risk": "string","recommendation": "string"}]},"synthesis_assessment": {"comprehensiveness": {"rating": "high|medium|low","justification": "string","improvement_areas": ["strings"]},"strategic_alignment": {"rating": "high|medium|low","justification": "string","improvement_areas": ["strings"]},"prioritization_effectiveness": {"rating": "high|medium|low","justification": "string","improvement_areas": ["strings"]}}}}
 ```
 
 ## Revision Process
 
-1. Analyze reflection feedback methodically
+1. Analyze reflection feedback methodically for all optimization domains
 2. Remove identified false positives
 3. Add overlooked opportunities with proper evidence
 4. Strengthen evidence for existing opportunities
 5. Adjust effort and impact ratings where needed
 6. Revise optimization approaches to address concerns
-7. Validate all opportunities against architectural principles
+7. Enhance synthesis to better integrate optimization recommendations
+8. Validate all opportunities against architectural principles
 
 ## Output Format
 
 Provide your revised analysis in the following JSON format:
 
 ```json
-{"revision_metadata": {"processed_feedback": {"false_positives_removed": [{"opportunity_type": "redundant_implementation|reuse_opportunity|service_consolidation|abstraction_opportunity","pattern": "string"}],"missing_opportunities_added": [{"opportunity_type": "redundant_implementation|reuse_opportunity|service_consolidation|abstraction_opportunity","pattern": "string"}],"evidence_strengthened": [{"opportunity_type": "redundant_implementation|reuse_opportunity|service_consolidation|abstraction_opportunity","pattern": "string"}],"ratings_adjusted": [{"opportunity_type": "redundant_implementation|reuse_opportunity|service_consolidation|abstraction_opportunity","pattern": "string","adjustment_type": "effort|impact|priority"}],"approaches_refined": [{"opportunity_type": "redundant_implementation|reuse_opportunity|service_consolidation|abstraction_opportunity","pattern": "string","refinement_aspect": "string"}]},"validation_steps": ["strings"]},"component_optimization_opportunities": {"redundant_implementations": [{"pattern": "string","affected_components": ["strings"],"common_functionality": "string","optimization_approach": "string","evidence": ["strings"],"effort_impact_ratio": {"effort": "high|medium|low","impact": "high|medium|low","priority": "string"}}],"reuse_opportunities": [{"pattern": "string","applicable_components": ["strings"],"shared_functionality": "string","reuse_approach": "string","evidence": ["strings"],"effort_impact_ratio": {"effort": "high|medium|low","impact": "high|medium|low","priority": "string"}}],"service_consolidation": [{"pattern": "string","mergeable_components": ["strings"],"unified_service": "string","consolidation_approach": "string","evidence": ["strings"],"effort_impact_ratio": {"effort": "high|medium|low","impact": "high|medium|low","priority": "string"}}],"abstraction_opportunities": [{"pattern": "string","current_implementations": ["strings"],"proposed_utility": "string","abstraction_approach": "string","evidence": ["strings"],"effort_impact_ratio": {"effort": "high|medium|low","impact": "high|medium|low","priority": "string"}}]}}
+{"revision_metadata": {"processed_feedback": {"false_positives_removed": [{"domain_alignment": "task_environment|environment_data|data_component|component_dependency|cross_cutting|redundancy_reduction","pattern": "string","removal_reason": "string"}],"opportunities_added": [{"domain_alignment": "task_environment|environment_data|data_component|component_dependency|cross_cutting|redundancy_reduction","pattern": "string","addition_justification": "string"}],"evidence_enhancements": [{"domain_alignment": "task_environment|environment_data|data_component|component_dependency|cross_cutting|redundancy_reduction","pattern": "string","enhancement_description": "string"}],"rating_adjustments": [{"domain_alignment": "task_environment|environment_data|data_component|component_dependency|cross_cutting|redundancy_reduction","pattern": "string","adjustment_type": "effort|impact|priority","adjustment_description": "string"}],"approach_refinements": [{"domain_alignment": "task_environment|environment_data|data_component|component_dependency|cross_cutting|redundancy_reduction","pattern": "string","refinement_description": "string"}],"synthesis_improvements": ["strings"]},"validation_steps": ["strings"]},"cross_guideline_optimization_opportunities": {"task_environment_alignments": [{"pattern": "string","affected_domains": ["strings"],"optimization_target": "string","optimization_approach": "string","evidence": ["strings"],"effort_impact_ratio": {"effort": "high|medium|low","impact": "high|medium|low","priority": "string"},"revision_note": "string"}],"environment_data_alignments": [{"pattern": "string","affected_domains": ["strings"],"optimization_target": "string","optimization_approach": "string","evidence": ["strings"],"effort_impact_ratio": {"effort": "high|medium|low","impact": "high|medium|low","priority": "string"},"revision_note": "string"}],"data_component_alignments": [{"pattern": "string","affected_domains": ["strings"],"optimization_target": "string","optimization_approach": "string","evidence": ["strings"],"effort_impact_ratio": {"effort": "high|medium|low","impact": "high|medium|low","priority": "string"},"revision_note": "string"}],"component_dependency_alignments": [{"pattern": "string","affected_domains": ["strings"],"optimization_target": "string","optimization_approach": "string","evidence": ["strings"],"effort_impact_ratio": {"effort": "high|medium|low","impact": "high|medium|low","priority": "string"},"revision_note": "string"}],"cross_cutting_optimizations": [{"pattern": "string","affected_domains": ["strings"],"optimization_target": "string","optimization_approach": "string","evidence": ["strings"],"effort_impact_ratio": {"effort": "high|medium|low","impact": "high|medium|low","priority": "string"},"revision_note": "string"}],"redundancy_reductions": [{"pattern": "string","affected_domains": ["strings"],"redundant_elements": ["strings"],"consolidation_approach": "string","evidence": ["strings"],"effort_impact_ratio": {"effort": "high|medium|low","impact": "high|medium|low","priority": "string"},"revision_note": "string"}],"synthesis": {"key_cross_guideline_patterns": ["strings"],"prioritized_optimization_strategy": [{"domain_intersection": "string","strategy": "string","affected_guidelines": ["strings"],"justification": "string","revision_note": "string"}],"holistic_recommendations": ["strings"]}}}
 ```
 
 ## Revision Guidelines
 
-### Analysis Accuracy
-- Remove opportunities identified as false positives
-- Add opportunities identified as missing
-- Refine descriptions to accurately represent optimization potential
+### Removing False Positives
+- Remove optimization opportunities flagged as false positives
+- Document reasoning for removal to maintain transparency
+- Ensure removal doesn't create gaps in overall optimization strategy
 
-### Evidence Quality
-- Add additional evidence where identified as insufficient
-- Correct interpretations where evidence was misinterpreted
-- Ensure evidence clearly supports optimization potential
+### Adding Overlooked Opportunities
+- Add all missing opportunities identified in reflection
+- Provide comprehensive evidence for each new opportunity
+- Ensure new additions maintain architectural coherence
 
-### Effort-Impact Assessment
-- Adjust effort ratings to be more realistic
-- Adjust impact ratings to better reflect architectural benefit
-- Recalibrate priorities based on revised ratings
-- Ensure priority descriptions match effort-impact combinations
+### Evidence Enhancements
+- Strengthen evidence for opportunities with insufficient support
+- Correct misinterpreted evidence with accurate interpretations
+- Ensure evidence is technical, specific, and directly supports the opportunity
 
-### Optimization Approaches
-- Refine approaches to address identified issues
-- Address dependency concerns in approach descriptions
-- Mitigate implementation risks where possible
-- Ensure approaches maintain architectural integrity
+### Rating Adjustments
+- Adjust effort ratings to reflect technical complexity
+- Revise impact ratings to accurately reflect architectural benefits
+- Update priority designations to align with adjusted ratings
+
+### Approach Refinements
+- Address identified issues in optimization approaches
+- Mitigate alignment concerns between guideline domains
+- Reduce implementation risks through improved approaches
+
+### Synthesis Improvements
+- Strengthen key cross-guideline patterns
+- Improve prioritization strategy
+- Enhance holistic recommendations
 
 ## Validation Checklist
 
@@ -719,21 +1073,22 @@ Before finalizing your revised analysis:
 3. Ensure all evidence issues have been addressed
 4. Check that rating adjustments have been implemented
 5. Validate that approach refinements address identified concerns
-6. Confirm that all opportunities have realistic effort-impact assessments
-7. Ensure appropriate architectural scope is maintained
+6. Confirm that synthesis improvements enhance overall strategy
+7. Ensure comprehensive coverage of all cross-guideline domains
+8. Verify strategic alignment of optimization recommendations
 
 ## Self-Correction Principles
 
 1. Focus on architectural improvement over implementation details
 2. Prioritize high-value, low-effort optimizations
-3. Balance component reuse with separation of concerns
-4. Ensure optimizations are traced to architectural principles
-5. Consider dependencies and potential ripple effects
-6. Maintain balance between identifying opportunities and recommending approaches
+3. Ensure optimizations genuinely improve cross-guideline alignment
+4. Consider dependencies and potential ripple effects
+5. Maintain balance between guideline domains
+6. Ensure synthesis provides a coherent overall optimization strategy
 7. Align optimizations with established architectural patterns and best practices
 """
 
-structural_component_analysis_revision_schema = {
+cross_guideline_optimization_revision_schema = {
   "type": "object",
   "properties": {
     "revision_metadata": {
@@ -747,57 +1102,94 @@ structural_component_analysis_revision_schema = {
               "items": {
                 "type": "object",
                 "properties": {
-                  "opportunity_type": {
+                  "domain_alignment": {
                     "type": "string",
-                    "enum": ["redundant_implementation", "reuse_opportunity", "service_consolidation", "abstraction_opportunity"]
+                    "enum": [
+                      "task_environment",
+                      "environment_data",
+                      "data_component",
+                      "component_dependency",
+                      "cross_cutting",
+                      "redundancy_reduction"
+                    ]
                   },
                   "pattern": {
                     "type": "string"
+                  },
+                  "removal_reason": {
+                    "type": "string"
                   }
                 },
-                "required": ["opportunity_type", "pattern"]
+                "required": ["domain_alignment", "pattern", "removal_reason"]
               }
             },
-            "missing_opportunities_added": {
+            "opportunities_added": {
               "type": "array",
               "items": {
                 "type": "object",
                 "properties": {
-                  "opportunity_type": {
+                  "domain_alignment": {
                     "type": "string",
-                    "enum": ["redundant_implementation", "reuse_opportunity", "service_consolidation", "abstraction_opportunity"]
+                    "enum": [
+                      "task_environment",
+                      "environment_data",
+                      "data_component",
+                      "component_dependency",
+                      "cross_cutting",
+                      "redundancy_reduction"
+                    ]
                   },
                   "pattern": {
                     "type": "string"
+                  },
+                  "addition_justification": {
+                    "type": "string"
                   }
                 },
-                "required": ["opportunity_type", "pattern"]
+                "required": ["domain_alignment", "pattern", "addition_justification"]
               }
             },
-            "evidence_strengthened": {
+            "evidence_enhancements": {
               "type": "array",
               "items": {
                 "type": "object",
                 "properties": {
-                  "opportunity_type": {
+                  "domain_alignment": {
                     "type": "string",
-                    "enum": ["redundant_implementation", "reuse_opportunity", "service_consolidation", "abstraction_opportunity"]
+                    "enum": [
+                      "task_environment",
+                      "environment_data",
+                      "data_component",
+                      "component_dependency",
+                      "cross_cutting",
+                      "redundancy_reduction"
+                    ]
                   },
                   "pattern": {
                     "type": "string"
+                  },
+                  "enhancement_description": {
+                    "type": "string"
                   }
                 },
-                "required": ["opportunity_type", "pattern"]
+                "required": ["domain_alignment", "pattern", "enhancement_description"]
               }
             },
-            "ratings_adjusted": {
+            "rating_adjustments": {
               "type": "array",
               "items": {
                 "type": "object",
                 "properties": {
-                  "opportunity_type": {
+                  "domain_alignment": {
                     "type": "string",
-                    "enum": ["redundant_implementation", "reuse_opportunity", "service_consolidation", "abstraction_opportunity"]
+                    "enum": [
+                      "task_environment",
+                      "environment_data",
+                      "data_component",
+                      "component_dependency",
+                      "cross_cutting",
+                      "redundancy_reduction"
+                    ]
                   },
                   "pattern": {
                     "type": "string"
@@ -805,38 +1197,48 @@ structural_component_analysis_revision_schema = {
                   "adjustment_type": {
                     "type": "string",
                     "enum": ["effort", "impact", "priority"]
+                  },
+                  "adjustment_description": {
+                    "type": "string"
                   }
                 },
-                "required": ["opportunity_type", "pattern", "adjustment_type"]
+                "required": ["domain_alignment", "pattern", "adjustment_type", "adjustment_description"]
               }
             },
-            "approaches_refined": {
+            "approach_refinements": {
               "type": "array",
               "items": {
                 "type": "object",
                 "properties": {
-                  "opportunity_type": {
+                  "domain_alignment": {
                     "type": "string",
-                    "enum": ["redundant_implementation", "reuse_opportunity", "service_consolidation", "abstraction_opportunity"]
+                    "enum": [
+                      "task_environment",
+                      "environment_data",
+                      "data_component",
+                      "component_dependency",
+                      "cross_cutting",
+                      "redundancy_reduction"
+                    ]
                   },
                   "pattern": {
                     "type": "string"
                   },
-                  "refinement_aspect": {
+                  "refinement_description": {
                     "type": "string"
                   }
                 },
-                "required": ["opportunity_type", "pattern", "refinement_aspect"]
+                "required": ["domain_alignment", "pattern", "refinement_description"]
+              }
+            },
+            "synthesis_improvements": {
+              "type": "array",
+              "items": {
+                "type": "string"
               }
             }
           },
-          "required": [
-            "false_positives_removed",
-            "missing_opportunities_added",
-            "evidence_strengthened",
-            "ratings_adjusted",
-            "approaches_refined"
-          ]
+          "required": ["false_positives_removed", "opportunities_added", "evidence_enhancements", "rating_adjustments", "approach_refinements", "synthesis_improvements"]
         },
         "validation_steps": {
           "type": "array",
@@ -847,10 +1249,10 @@ structural_component_analysis_revision_schema = {
       },
       "required": ["processed_feedback", "validation_steps"]
     },
-    "component_optimization_opportunities": {
+    "cross_guideline_optimization_opportunities": {
       "type": "object",
       "properties": {
-        "redundant_implementations": {
+        "task_environment_alignments": {
           "type": "array",
           "items": {
             "type": "object",
@@ -858,13 +1260,13 @@ structural_component_analysis_revision_schema = {
               "pattern": {
                 "type": "string"
               },
-              "affected_components": {
+              "affected_domains": {
                 "type": "array",
                 "items": {
                   "type": "string"
                 }
               },
-              "common_functionality": {
+              "optimization_target": {
                 "type": "string"
               },
               "optimization_approach": {
@@ -892,12 +1294,15 @@ structural_component_analysis_revision_schema = {
                   }
                 },
                 "required": ["effort", "impact", "priority"]
+              },
+              "revision_note": {
+                "type": "string"
               }
             },
-            "required": ["pattern", "affected_components", "common_functionality", "optimization_approach", "evidence", "effort_impact_ratio"]
+            "required": ["pattern", "affected_domains", "optimization_target", "optimization_approach", "evidence", "effort_impact_ratio", "revision_note"]
           }
         },
-        "reuse_opportunities": {
+        "environment_data_alignments": {
           "type": "array",
           "items": {
             "type": "object",
@@ -905,16 +1310,16 @@ structural_component_analysis_revision_schema = {
               "pattern": {
                 "type": "string"
               },
-              "applicable_components": {
+              "affected_domains": {
                 "type": "array",
                 "items": {
                   "type": "string"
                 }
               },
-              "shared_functionality": {
+              "optimization_target": {
                 "type": "string"
               },
-              "reuse_approach": {
+              "optimization_approach": {
                 "type": "string"
               },
               "evidence": {
@@ -939,12 +1344,15 @@ structural_component_analysis_revision_schema = {
                   }
                 },
                 "required": ["effort", "impact", "priority"]
+              },
+              "revision_note": {
+                "type": "string"
               }
             },
-            "required": ["pattern", "applicable_components", "shared_functionality", "reuse_approach", "evidence", "effort_impact_ratio"]
+            "required": ["pattern", "affected_domains", "optimization_target", "optimization_approach", "evidence", "effort_impact_ratio", "revision_note"]
           }
         },
-        "service_consolidation": {
+        "data_component_alignments": {
           "type": "array",
           "items": {
             "type": "object",
@@ -952,14 +1360,167 @@ structural_component_analysis_revision_schema = {
               "pattern": {
                 "type": "string"
               },
-              "mergeable_components": {
+              "affected_domains": {
                 "type": "array",
                 "items": {
                   "type": "string"
                 }
               },
-              "unified_service": {
+              "optimization_target": {
                 "type": "string"
+              },
+              "optimization_approach": {
+                "type": "string"
+              },
+              "evidence": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "effort_impact_ratio": {
+                "type": "object",
+                "properties": {
+                  "effort": {
+                    "type": "string",
+                    "enum": ["high", "medium", "low"]
+                  },
+                  "impact": {
+                    "type": "string",
+                    "enum": ["high", "medium", "low"]
+                  },
+                  "priority": {
+                    "type": "string"
+                  }
+                },
+                "required": ["effort", "impact", "priority"]
+              },
+              "revision_note": {
+                "type": "string"
+              }
+            },
+            "required": ["pattern", "affected_domains", "optimization_target", "optimization_approach", "evidence", "effort_impact_ratio", "revision_note"]
+          }
+        },
+        "component_dependency_alignments": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "pattern": {
+                "type": "string"
+              },
+              "affected_domains": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "optimization_target": {
+                "type": "string"
+              },
+              "optimization_approach": {
+                "type": "string"
+              },
+              "evidence": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "effort_impact_ratio": {
+                "type": "object",
+                "properties": {
+                  "effort": {
+                    "type": "string",
+                    "enum": ["high", "medium", "low"]
+                  },
+                  "impact": {
+                    "type": "string",
+                    "enum": ["high", "medium", "low"]
+                  },
+                  "priority": {
+                    "type": "string"
+                  }
+                },
+                "required": ["effort", "impact", "priority"]
+              },
+              "revision_note": {
+                "type": "string"
+              }
+            },
+            "required": ["pattern", "affected_domains", "optimization_target", "optimization_approach", "evidence", "effort_impact_ratio", "revision_note"]
+          }
+        },
+        "cross_cutting_optimizations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "pattern": {
+                "type": "string"
+              },
+              "affected_domains": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "optimization_target": {
+                "type": "string"
+              },
+              "optimization_approach": {
+                "type": "string"
+              },
+              "evidence": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "effort_impact_ratio": {
+                "type": "object",
+                "properties": {
+                  "effort": {
+                    "type": "string",
+                    "enum": ["high", "medium", "low"]
+                  },
+                  "impact": {
+                    "type": "string",
+                    "enum": ["high", "medium", "low"]
+                  },
+                  "priority": {
+                    "type": "string"
+                  }
+                },
+                "required": ["effort", "impact", "priority"]
+              },
+              "revision_note": {
+                "type": "string"
+              }
+            },
+            "required": ["pattern", "affected_domains", "optimization_target", "optimization_approach", "evidence", "effort_impact_ratio", "revision_note"]
+          }
+        },
+        "redundancy_reductions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "pattern": {
+                "type": "string"
+              },
+              "affected_domains": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "redundant_elements": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
               },
               "consolidation_approach": {
                 "type": "string"
@@ -986,61 +1547,62 @@ structural_component_analysis_revision_schema = {
                   }
                 },
                 "required": ["effort", "impact", "priority"]
+              },
+              "revision_note": {
+                "type": "string"
               }
             },
-            "required": ["pattern", "mergeable_components", "unified_service", "consolidation_approach", "evidence", "effort_impact_ratio"]
+            "required": ["pattern", "affected_domains", "redundant_elements", "consolidation_approach", "evidence", "effort_impact_ratio", "revision_note"]
           }
         },
-        "abstraction_opportunities": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "pattern": {
+        "synthesis": {
+          "type": "object",
+          "properties": {
+            "key_cross_guideline_patterns": {
+              "type": "array",
+              "items": {
                 "type": "string"
-              },
-              "current_implementations": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "proposed_utility": {
-                "type": "string"
-              },
-              "abstraction_approach": {
-                "type": "string"
-              },
-              "evidence": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "effort_impact_ratio": {
+              }
+            },
+            "prioritized_optimization_strategy": {
+              "type": "array",
+              "items": {
                 "type": "object",
                 "properties": {
-                  "effort": {
-                    "type": "string",
-                    "enum": ["high", "medium", "low"]
+                  "domain_intersection": {
+                    "type": "string"
                   },
-                  "impact": {
-                    "type": "string",
-                    "enum": ["high", "medium", "low"]
+                  "strategy": {
+                    "type": "string"
                   },
-                  "priority": {
+                  "affected_guidelines": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "justification": {
+                    "type": "string"
+                  },
+                  "revision_note": {
                     "type": "string"
                   }
                 },
-                "required": ["effort", "impact", "priority"]
+                "required": ["domain_intersection", "strategy", "affected_guidelines", "justification", "revision_note"]
               }
             },
-            "required": ["pattern", "current_implementations", "proposed_utility", "abstraction_approach", "evidence", "effort_impact_ratio"]
-          }
+            "holistic_recommendations": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": ["key_cross_guideline_patterns", "prioritized_optimization_strategy", "holistic_recommendations"]
         }
       },
-      "required": ["redundant_implementations", "reuse_opportunities", "service_consolidation", "abstraction_opportunities"]
+      "required": ["task_environment_alignments", "environment_data_alignments", "data_component_alignments", "component_dependency_alignments", "cross_cutting_optimizations", "redundancy_reductions", "synthesis"]
     }
   },
-  "required": ["revision_metadata", "component_optimization_opportunities"]
+  "required": ["revision_metadata", "cross_guideline_optimization_opportunities"]
 }

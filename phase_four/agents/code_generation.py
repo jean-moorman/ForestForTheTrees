@@ -11,7 +11,9 @@ from resources import (
     ErrorHandler, 
     MemoryMonitor
 )
-from interface import AgentInterface, ValidationManager, AgentState
+from interfaces.agent.interface import AgentInterface
+from interfaces.agent.validation import ValidationManager
+from interfaces.agent.interface import AgentState
 
 logger = logging.getLogger(__name__)
 

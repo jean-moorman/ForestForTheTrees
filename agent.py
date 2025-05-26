@@ -125,13 +125,14 @@ class Agent:
         validation_key = f"validation:agent:{operation_id}"
         
         try:
-            self.logger.debug(f"Starting get_response with operation_id: {operation_id}")
+            self.logger.info(f"=== STARTING get_response with operation_id: {operation_id} ===")
+            self.logger.info(f"Conversation length: {len(conversation) if conversation else 0}")
             
             # Validate inputs
             if not conversation:
                 raise ValueError("conversation parameter cannot be empty")
             if schema is None: #setting default schema
-                self.logger.debug("Schema parameter is none, setting default schema")
+                self.logger.info("Schema parameter is none, setting default schema")
                 prompt_name = system_prompt_info[1]
                 schema_name = prompt_name[:-6] + "schema"
                 schema_dir = system_prompt_info[0]
@@ -153,11 +154,11 @@ class Agent:
                 self.logger.debug(f"Schema name: {schema_name}")
                 # Get the schema from the module
                 self.schema = getattr(schema_module, schema_name, None)
-                self.logger.debug(f"Default Schema: {self.schema}")
+                self.logger.info(f"Default Schema loaded: {self.schema is not None}")
                 if self.schema is None:
                     raise AttributeError(f"No schema found in {schema_path}")
             
-            logging.info("getting validation state entry")
+            self.logger.info("=== SCHEMA LOADING COMPLETE, getting validation state entry ===")
             # Get validation state entry
             state_entry = await self._state_manager.get_state(validation_key)
             
@@ -257,7 +258,9 @@ class Agent:
                     return result
                 
                 #Handle multiple validation attempts
+                logging.info(f"Starting validation loop - attempts: {validation_data['attempts']}, max: {self.max_validation_attempts}")
                 while not success and validation_data["attempts"] < self.max_validation_attempts - 1:
+                    logging.info(f"Validation attempt {validation_data['attempts'] + 1} - validation failed, retrying...")
                     val_errors = f"Validation failed with errors: {analysis}"
                     
                     # Get new content with validation feedback
@@ -273,6 +276,12 @@ class Agent:
                     success, result, analysis = await self.validator.validate_output(new_content, self.schema)
 
                     validation_data["attempts"] += 1
+                    logging.info(f"Validation attempt {validation_data['attempts']} completed. Success: {success}")
+                    
+                    # Safety check to prevent infinite loops
+                    if validation_data["attempts"] >= self.max_validation_attempts:
+                        logging.warning(f"Maximum validation attempts ({self.max_validation_attempts}) reached, breaking loop")
+                        break
                     validation_data["history"].append({
                         "timestamp": datetime.now().isoformat(),
                         "success": success,

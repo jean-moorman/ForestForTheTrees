@@ -1,9 +1,19 @@
 """
-Water Agent System Prompts
+Water Agent system prompts for agent coordination.
 
-This package contains system prompts for the Water Agent, responsible for:
-1. Propagating validated guideline updates across the dependency graph
-2. Generating rich contextual information for downstream agents
-3. Providing adaptation guidance for affected components/features/functionalities
-4. Ensuring smooth system evolution with coherent understanding between agents
+This module provides the system prompts used by the Water Agent to detect and
+resolve misunderstandings between sequential agents in the FFTT system.
 """
+from .misunderstanding_detection_prompt import MISUNDERSTANDING_DETECTION_PROMPT
+from .resolution_assessment_prompt import RESOLUTION_ASSESSMENT_PROMPT
+from .context_refinement_prompt import CONTEXT_REFINEMENT_PROMPT
+from .reflection_prompt import WATER_AGENT_REFLECTION_PROMPT
+from .revision_prompt import WATER_AGENT_REVISION_PROMPT
+
+__all__ = [
+    'MISUNDERSTANDING_DETECTION_PROMPT',
+    'RESOLUTION_ASSESSMENT_PROMPT', 
+    'CONTEXT_REFINEMENT_PROMPT',
+    'WATER_AGENT_REFLECTION_PROMPT',
+    'WATER_AGENT_REVISION_PROMPT'
+]

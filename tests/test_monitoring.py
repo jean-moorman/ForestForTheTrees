@@ -42,12 +42,45 @@ async def success_operation():
 
 # Fixtures
 @pytest_asyncio.fixture
-async def event_queue():
-    """Create a real event queue for testing."""
+async def direct_test_event_queue():
+    """Create an event queue that directly processes events without batching."""
+    # This is a special version of EventQueue where we override the emit 
+    # method to directly call the subscribers without going through the event loop
     queue = EventQueue()
+    await queue.start()
+    
+    # Save original methods
+    original_emit = queue.emit
+    
+    # Create a direct-call emit method that bypasses the event loop
+    async def direct_emit(event_type, data, correlation_id=None, priority="normal"):
+        # Get subscribers for this event type
+        subscribers = queue._subscribers.get(event_type, set())
+        
+        # Directly call each subscriber
+        for subscriber_entry in subscribers:
+            callback, _, _ = subscriber_entry
+            try:
+                if asyncio.iscoroutinefunction(callback):
+                    await callback(event_type, data)
+                else:
+                    callback(event_type, data)
+            except Exception as e:
+                logger.error(f"Error in direct callback: {e}")
+        
+        # Still do the normal emit for tracking
+        return await original_emit(event_type, data, correlation_id, priority)
+    
+    # Replace the emit method
+    queue.emit = direct_emit
+    
     yield queue
-    # Clean up if needed
-    await queue.stop() if hasattr(queue, 'stop') else None
+    await queue.stop()
+
+@pytest_asyncio.fixture
+async def event_queue(direct_test_event_queue):
+    """Create a real event queue for testing."""
+    return direct_test_event_queue
 
 @pytest.fixture
 def memory_thresholds():

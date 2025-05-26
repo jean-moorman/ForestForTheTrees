@@ -1,11 +1,22 @@
 import asyncio
 import contextlib
 import logging
+import threading
 from collections import defaultdict
 from datetime import datetime, timedelta
-from typing import Dict, Any, Optional, List, Union
+from typing import Dict, Any, Optional, List, Union, TypeVar
 
-from resources.base import BaseManager, CleanupPolicy
+# Import the interfaces
+from resources.interfaces.state import (
+    IStateManager, 
+    IStateEntry, 
+    IStateSnapshot,
+    IStateManagerConfig
+)
+from resources.interfaces.base import ICleanupPolicy
+
+# Import implementation classes
+from resources.base import BaseManager
 from resources.common import ResourceState, InterfaceState, ResourceType, HealthStatus
 from resources.events import EventQueue, ResourceEventTypes
 from resources.state.backends.base import StateStorageBackend
@@ -17,29 +28,39 @@ from resources.state.validators import StateTransitionValidator
 
 logger = logging.getLogger(__name__)
 
+# Type variable for generic return type
+T = TypeVar('T')
 
 class StateManager(BaseManager):
-    """Manages state transitions and persistence with pluggable backends"""
+    """
+    Manages state transitions and persistence with pluggable backends.
+    
+    This class implements the IStateManager interface for state management
+    across the system with pluggable storage backends.
+    """
     
     _instance = None
     _init_count = 0
+    _lock = threading.RLock()  # Class-level lock for singleton pattern
 
     def __new__(cls, 
                 event_queue: EventQueue,
                 config: Optional[StateManagerConfig] = None):
-        """Implement singleton pattern to prevent multiple instances"""
-        if cls._instance is None:
-            cls._instance = super(StateManager, cls).__new__(cls)
-            cls._instance._is_initialized = False
-        return cls._instance
+        """Implement singleton pattern to prevent multiple instances with thread safety"""
+        with cls._lock:
+            if cls._instance is None:
+                cls._instance = super(StateManager, cls).__new__(cls)
+                cls._instance._is_initialized = False
+            return cls._instance
 
     def __init__(self, 
                  event_queue: EventQueue,
                  config: Optional[StateManagerConfig] = None):
         """Initialize the state manager with the given configuration"""
-        # Increment initialization counter for debugging
-        StateManager._init_count += 1
-        init_count = StateManager._init_count
+        # Thread-safe initialization counter increment
+        with self._lock:
+            StateManager._init_count += 1
+            init_count = StateManager._init_count
         
         # Only initialize once
         if hasattr(self, '_is_initialized') and self._is_initialized:
@@ -47,82 +68,122 @@ class StateManager(BaseManager):
             return
             
         logger.info(f"Initializing StateManager (attempt #{init_count})")
-        self._is_initialized = True
         
-        config = config or StateManagerConfig()
-        
-        super().__init__(
-            event_queue=event_queue,
-            cleanup_config=config.cleanup_config,
-        )
-        
-        self._config = config
-        
-        # Initialize the appropriate storage backend based on configuration
-        if config.persistence_type == "file" and config.storage_dir:
-            self._backend = FileStateBackend(config.storage_dir)
-            logger.info(f"Using file-based persistence at {config.storage_dir}")
+        # Protect initialization with lock
+        with self._lock:
+            if hasattr(self, '_is_initialized') and self._is_initialized:
+                return
+                
+            self._is_initialized = True
             
-        elif config.persistence_type == "sqlite" and config.db_path:
-            self._backend = SQLiteStateBackend(config.db_path)
-            logger.info(f"Using SQLite persistence at {config.db_path}")
+            # Store thread affinity for proper thread boundary enforcement
+            self._creation_thread_id = threading.get_ident()
+            logger.info(f"StateManager initializing in thread {self._creation_thread_id}")
             
-        elif config.persistence_type == "custom" and config.custom_backend:
-            self._backend = config.custom_backend
-            logger.info(f"Using custom persistence backend: {type(config.custom_backend).__name__}")
+            # Store the event loop for this component for proper thread ownership
+            import asyncio
+            from resources.events.loop_management import ThreadLocalEventLoopStorage
+            try:
+                loop = asyncio.get_event_loop()
+                ThreadLocalEventLoopStorage.get_instance().set_loop(loop)
+                logger.debug(f"StateManager registered loop {id(loop)} with thread {self._creation_thread_id}")
+            except Exception as e:
+                logger.warning(f"Could not register event loop for StateManager: {e}")
             
-        else:
-            self._backend = MemoryStateBackend()
-            logger.info("Using in-memory persistence (no persistence between restarts)")
-        
-        # LRU cache for frequently accessed state to reduce backend access
-        self._states_cache: Dict[str, StateEntry] = {}
-        self._cache_keys: List[str] = []  # For LRU tracking
-        
-        # State validator
-        self._validator = StateTransitionValidator()
-        
-        # Resource-level locks for concurrency control
-        self._resource_locks: Dict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
-        self._global_lock: asyncio.Lock = asyncio.Lock()
-        
-        # Metrics if enabled
-        if config.enable_metrics:
-            self._metrics = {
-                "set_state_count": 0,
-                "get_state_count": 0,
-                "get_history_count": 0,
-                "cache_hits": 0,
-                "cache_misses": 0,
-                "transition_failures": 0,
-                "backend_errors": 0,
-                "resource_count": 0
-            }
-        else:
-            self._metrics = None
+            config = config or StateManagerConfig()
             
-        # Initialize but don't start cleanup task yet
-        self._cleanup_task: Optional[asyncio.Task] = None
-        self._cleanup_running = False
-        
-        # Start the cleanup task if cleanup config is provided
-        if config.cleanup_config:
-            self._start_cleanup_task()
-        
-        # Flag to track initialization status
-        self._initialization_complete = False
-        self._init_lock = asyncio.Lock()
-        
-        # We no longer create a task here:
-        # asyncio.create_task(self._initialize())
-        # Instead, we'll initialize on first use
+            super().__init__(
+                event_queue=event_queue,
+                cleanup_config=config.cleanup_config,
+            )
+            
+            self._config = config
+            
+            # Initialize the appropriate storage backend based on configuration
+            if config.persistence_type == "file" and config.storage_dir:
+                self._backend = FileStateBackend(config.storage_dir)
+                logger.info(f"Using file-based persistence at {config.storage_dir}")
+                
+            elif config.persistence_type == "sqlite" and config.db_path:
+                self._backend = SQLiteStateBackend(config.db_path)
+                logger.info(f"Using SQLite persistence at {config.db_path}")
+                
+            elif config.persistence_type == "custom" and config.custom_backend:
+                self._backend = config.custom_backend
+                logger.info(f"Using custom persistence backend: {type(config.custom_backend).__name__}")
+                
+            else:
+                self._backend = MemoryStateBackend()
+                logger.info("Using in-memory persistence (no persistence between restarts)")
+            
+            # LRU cache for frequently accessed state to reduce backend access
+            self._states_cache: Dict[str, StateEntry] = {}
+            self._cache_keys: List[str] = []  # For LRU tracking
+            
+            # State validator
+            self._validator = StateTransitionValidator()
+            
+            # Create thread-safe lock for global operations
+            self._global_lock = threading.RLock() 
+            
+            # Resource-level locks dictionary with thread-safe access
+            self._resource_locks: Dict[str, threading.RLock] = {}
+            
+            # Metrics if enabled
+            if config.enable_metrics:
+                self._metrics = {
+                    "set_state_count": 0,
+                    "get_state_count": 0,
+                    "get_history_count": 0,
+                    "cache_hits": 0,
+                    "cache_misses": 0,
+                    "transition_failures": 0,
+                    "backend_errors": 0,
+                    "resource_count": 0
+                }
+            else:
+                self._metrics = None
+                
+            # Initialize but don't start cleanup task yet
+            self._cleanup_task: Optional[asyncio.Task] = None
+            self._cleanup_running = False
+            
+            # Start the cleanup task if cleanup config is provided
+            if config.cleanup_config:
+                self._start_cleanup_task()
+            
+            # Flag to track initialization status
+            self._initialization_complete = False
+            self._init_lock = threading.RLock()
     
     async def ensure_initialized(self):
-        """Ensure the state manager is fully initialized before use."""
+        """Ensure the state manager is fully initialized before use with thread boundary enforcement."""
+        # Check if we're in the same thread as the state manager was created in
+        if hasattr(self, '_creation_thread_id'):
+            current_thread_id = threading.get_ident()
+            if current_thread_id != self._creation_thread_id:
+                logger.warning(f"ensure_initialized called from thread {current_thread_id}, but manager created in thread {self._creation_thread_id}")
+                
+                # Delegate to the correct thread if possible
+                from resources.events.loop_management import EventLoopManager
+                try:
+                    loop = EventLoopManager.get_loop_for_thread(self._creation_thread_id)
+                    if loop:
+                        logger.info(f"Delegating initialization to StateManager thread {self._creation_thread_id}")
+                        future = EventLoopManager.run_coroutine_threadsafe(
+                            self.ensure_initialized(), 
+                            target_loop=loop
+                        )
+                        return await asyncio.wrap_future(future)
+                except Exception as e:
+                    logger.error(f"Error delegating initialization to StateManager thread: {e}")
+                    # Continue with current thread as fallback, but log the issue
+        
         if self._initialization_complete:
             return
             
-        async with self._init_lock:
+        # Use the thread-safe lock for initialization
+        with self._init_lock:
             if not self._initialization_complete:
                 await self._initialize()
                 self._initialization_complete = True
@@ -142,7 +203,8 @@ class StateManager(BaseManager):
                     self._update_cache(resource_id, state_entry)
             
             if self._metrics:
-                self._metrics["resource_count"] = len(resource_ids)
+                with self._global_lock:
+                    self._metrics["resource_count"] = len(resource_ids)
                 
             logger.info(f"State manager initialized with {len(self._states_cache)} resources in cache")
             
@@ -164,18 +226,22 @@ class StateManager(BaseManager):
         await instance.ensure_initialized()
         return instance
     
-    @contextlib.asynccontextmanager
-    async def _resource_lock(self, resource_id: str):
-        """Acquire a resource-specific lock to prevent race conditions."""
-        async with self._global_lock:
-            # Ensure the lock exists under global lock
+    def _get_resource_lock(self, resource_id: str) -> threading.RLock:
+        """Get or create a resource-specific lock with thread safety"""
+        with self._global_lock:
             if resource_id not in self._resource_locks:
-                self._resource_locks[resource_id] = asyncio.Lock()
+                self._resource_locks[resource_id] = threading.RLock()
+            return self._resource_locks[resource_id]
+    
+    @contextlib.contextmanager
+    def _resource_lock(self, resource_id: str):
+        """Acquire a resource-specific lock to prevent race conditions."""
+        # Get the resource lock (which will create it if it doesn't exist)
+        lock = self._get_resource_lock(resource_id)
         
         # Then acquire the resource-specific lock
-        lock = self._resource_locks[resource_id]
         try:
-            async with lock:
+            with lock:
                 yield
         except Exception as e:
             logger.error(f"Error while holding resource lock for {resource_id}: {e}")
@@ -183,41 +249,85 @@ class StateManager(BaseManager):
     
     def _update_cache(self, resource_id: str, state_entry: StateEntry):
         """Update the LRU cache with a state entry"""
-        # Remove existing key if present
-        if resource_id in self._cache_keys:
-            self._cache_keys.remove(resource_id)
+        with self._global_lock:
+            # Remove existing key if present
+            if resource_id in self._cache_keys:
+                self._cache_keys.remove(resource_id)
+                
+            # Add to cache
+            self._states_cache[resource_id] = state_entry
+            self._cache_keys.append(resource_id)
             
-        # Add to cache
-        self._states_cache[resource_id] = state_entry
-        self._cache_keys.append(resource_id)
-        
-        # Enforce cache size limit
-        while len(self._cache_keys) > self._config.cache_size:
-            oldest_key = self._cache_keys.pop(0)
-            if oldest_key in self._states_cache:
-                del self._states_cache[oldest_key]
+            # Enforce cache size limit
+            while len(self._cache_keys) > self._config.cache_size:
+                oldest_key = self._cache_keys.pop(0)
+                if oldest_key in self._states_cache:
+                    del self._states_cache[oldest_key]
     
     async def set_state(self,
-                        resource_id: str,
-                        state: Union[ResourceState, InterfaceState, Dict[str, Any]],
-                        resource_type: ResourceType,
+                        resource_id: str, 
+                        state: Union[str, Dict[str, Any]],
                         metadata: Optional[Dict[str, Any]] = None,
+                        resource_type: Optional[ResourceType] = None,
                         transition_reason: Optional[str] = None,
-                        failure_info: Optional[Dict[str, Any]] = None) -> StateEntry:
-        """Set state with validation and persistence"""
-        if self._metrics:
-            self._metrics["set_state_count"] += 1
+                        failure_info: Optional[Dict[str, Any]] = None) -> bool:
+        """
+        Set state for a resource.
+        
+        Args:
+            resource_id: Unique identifier for the resource
+            state: The state to set
+            metadata: Optional metadata to associate with the state
+            resource_type: Optional resource type
             
-        async with self._resource_lock(resource_id):
+        Returns:
+            True if the state was set successfully, False otherwise
+        """
+        # Enforce thread boundary - this is a critical method that should be in the right thread
+        if hasattr(self, '_creation_thread_id'):
+            current_thread_id = threading.get_ident()
+            if current_thread_id != self._creation_thread_id:
+                # Delegate to the correct thread
+                from resources.events.loop_management import EventLoopManager
+                try:
+                    loop = EventLoopManager.get_loop_for_thread(self._creation_thread_id)
+                    if loop:
+                        logger.debug(f"Delegating set_state for {resource_id} to StateManager thread {self._creation_thread_id}")
+                        future = EventLoopManager.run_coroutine_threadsafe(
+                            self.set_state(
+                                resource_id=resource_id,
+                                state=state,
+                                resource_type=resource_type,
+                                metadata=metadata,
+                                transition_reason=transition_reason,
+                                failure_info=failure_info
+                            ),
+                            target_loop=loop
+                        )
+                        return await asyncio.wrap_future(future)
+                except Exception as e:
+                    logger.error(f"Error delegating set_state to StateManager thread: {e}")
+                    # Continue with current thread as fallback
+        
+        # Update metrics
+        if self._metrics:
+            with self._global_lock:
+                self._metrics["set_state_count"] += 1
+            
+        # Use the context manager to handle the resource lock
+        with self._resource_lock(resource_id):
             # Get current state (trying cache first)
-            current = self._states_cache.get(resource_id)
+            with self._global_lock:
+                current = self._states_cache.get(resource_id)
+                
             if not current:
                 try:
                     current = await self._backend.load_state(resource_id)
                 except Exception as e:
                     logger.error(f"Error loading state from backend for {resource_id}: {e}")
                     if self._metrics:
-                        self._metrics["backend_errors"] += 1
+                        with self._global_lock:
+                            self._metrics["backend_errors"] += 1
             
             # Check if state is actually changing
             is_new_resource = current is None
@@ -230,7 +340,8 @@ class StateManager(BaseManager):
                     error_msg = f"Invalid state transition: {current.state} -> {state}"
                     logger.warning(f"{error_msg} for resource {resource_id}")
                     if self._metrics:
-                        self._metrics["transition_failures"] += 1
+                        with self._global_lock:
+                            self._metrics["transition_failures"] += 1
                     raise ValueError(error_msg)
             
             # Create new state entry
@@ -252,11 +363,13 @@ class StateManager(BaseManager):
                 if not success:
                     logger.error(f"Failed to persist state for {resource_id}")
                     if self._metrics:
-                        self._metrics["backend_errors"] += 1
+                        with self._global_lock:
+                            self._metrics["backend_errors"] += 1
             except Exception as e:
                 logger.error(f"Error persisting state for {resource_id}: {e}")
                 if self._metrics:
-                    self._metrics["backend_errors"] += 1
+                    with self._global_lock:
+                        self._metrics["backend_errors"] += 1
             
             # Create periodic snapshot if needed
             try:
@@ -270,36 +383,64 @@ class StateManager(BaseManager):
             if state_changed:
                 try:
                     # Emit state change event
-                    await self._event_queue.emit(
+                    await self.event_bus.emit(
                         "resource_state_changed",
                         {
                             "resource_id": resource_id,
                             "state": str(state),
-                            "resource_type": resource_type.name,
-                            "metadata": metadata,
-                            "transition_reason": transition_reason,
-                            "failure_info": failure_info
+                            "resource_type": resource_type.name if resource_type else None,
+                            "metadata": metadata
                         }
                     )
                 except Exception as e:
                     logger.error(f"Failed to emit state change event: {e}")
             
-            return entry
+            # Return True to indicate success
+            return True
 
     async def get_state(self, 
-                        resource_id: str,
-                        version: Optional[int] = None,
-                        use_cache: bool = True) -> Optional[StateEntry]:
+                      resource_id: str, 
+                      default: Optional[T] = None,
+                      version: Optional[int] = None,
+                      use_cache: bool = True) -> Union[T, IStateEntry]:
         """
-        Get current state or specific version.
+        Get current state or specific version with thread boundary enforcement.
         
         Args:
             resource_id: The ID of the resource
             version: If provided, get a specific version from history
             use_cache: Whether to use the cache (set to False to force backend lookup)
         """
+        # Enforce thread boundary for this critical method
+        if hasattr(self, '_creation_thread_id'):
+            current_thread_id = threading.get_ident()
+            if current_thread_id != self._creation_thread_id:
+                # Lower log level to debug since get_state is called very frequently
+                logger.debug(f"get_state for {resource_id} called from thread {current_thread_id}, manager in thread {self._creation_thread_id}")
+                
+                # For read operations, we could be more lenient and allow cross-thread access
+                # But for consistency, delegate to the correct thread
+                from resources.events.loop_management import EventLoopManager
+                try:
+                    loop = EventLoopManager.get_loop_for_thread(self._creation_thread_id)
+                    if loop:
+                        logger.debug(f"Delegating get_state for {resource_id} to StateManager thread {self._creation_thread_id}")
+                        future = EventLoopManager.run_coroutine_threadsafe(
+                            self.get_state(
+                                resource_id=resource_id,
+                                default=default
+                            ),
+                            target_loop=loop
+                        )
+                        return await asyncio.wrap_future(future)
+                except Exception as e:
+                    logger.debug(f"Error delegating get_state to StateManager thread: {e} - using direct access")
+                    # Continue with current thread as fallback for read operations
+        
+        # Update metrics
         if self._metrics:
-            self._metrics["get_state_count"] += 1
+            with self._global_lock:
+                self._metrics["get_state_count"] += 1
             
         if version is not None:
             # Need to load history for specific version (never cached)
@@ -309,19 +450,23 @@ class StateManager(BaseManager):
             except Exception as e:
                 logger.error(f"Error loading history for {resource_id}: {e}")
                 if self._metrics:
-                    self._metrics["backend_errors"] += 1
+                    with self._global_lock:
+                        self._metrics["backend_errors"] += 1
                 return None
         
         # Try cache first if enabled
-        if use_cache and resource_id in self._states_cache:
-            if self._metrics:
-                self._metrics["cache_hits"] += 1
-            return self._states_cache[resource_id]
+        if use_cache:
+            with self._global_lock:
+                if resource_id in self._states_cache:
+                    if self._metrics:
+                        self._metrics["cache_hits"] += 1
+                    return self._states_cache[resource_id]
         
         # Load from backend
         try:
             if self._metrics:
-                self._metrics["cache_misses"] += 1
+                with self._global_lock:
+                    self._metrics["cache_misses"] += 1
                 
             state = await self._backend.load_state(resource_id)
             if state and use_cache:
@@ -330,7 +475,8 @@ class StateManager(BaseManager):
         except Exception as e:
             logger.error(f"Error loading state for {resource_id} from backend: {e}")
             if self._metrics:
-                self._metrics["backend_errors"] += 1
+                with self._global_lock:
+                    self._metrics["backend_errors"] += 1
             return None
 
     async def get_history(self,
@@ -338,14 +484,16 @@ class StateManager(BaseManager):
                          limit: Optional[int] = None) -> List[StateEntry]:
         """Get state transition history"""
         if self._metrics:
-            self._metrics["get_history_count"] += 1
+            with self._global_lock:
+                self._metrics["get_history_count"] += 1
             
         try:
             return await self._backend.load_history(resource_id, limit)
         except Exception as e:
             logger.error(f"Error loading history for {resource_id}: {e}")
             if self._metrics:
-                self._metrics["backend_errors"] += 1
+                with self._global_lock:
+                    self._metrics["backend_errors"] += 1
             return []
 
     async def _create_snapshot(self, resource_id: str, state_entry: Optional[StateEntry] = None) -> None:
@@ -368,7 +516,8 @@ class StateManager(BaseManager):
         except Exception as e:
             logger.error(f"Error creating snapshot for {resource_id}: {e}")
             if self._metrics:
-                self._metrics["backend_errors"] += 1
+                with self._global_lock:
+                    self._metrics["backend_errors"] += 1
 
     async def recover_from_snapshot(self, 
                                    resource_id: str,
@@ -398,28 +547,36 @@ class StateManager(BaseManager):
         except Exception as e:
             logger.error(f"Error recovering from snapshot: {e}")
             if self._metrics:
-                self._metrics["backend_errors"] += 1
+                with self._global_lock:
+                    self._metrics["backend_errors"] += 1
             return None
     
     def _start_cleanup_task(self, immediate_for_testing=False):
         """Start the background cleanup task based on cleanup configuration."""
-        if self._cleanup_task is not None:
-            logger.warning("Cleanup task already running, not starting another one")
-            return
-            
-        if not self._cleanup_config:
-            logger.warning("No cleanup configuration provided, cleanup task not started")
-            return
-            
-        self._cleanup_running = True
+        with self._global_lock:
+            if self._cleanup_task is not None:
+                logger.warning("Cleanup task already running, not starting another one")
+                return
+                
+            if not self._cleanup_config:
+                logger.warning("No cleanup configuration provided, cleanup task not started")
+                return
+                
+            self._cleanup_running = True
         
-        asyncio.create_task(self.start_cleanup_task_safe(immediate_for_testing))
+        try:
+            loop = asyncio.get_running_loop()
+            asyncio.create_task(self.start_cleanup_task_safe(immediate_for_testing))
+        except RuntimeError:
+            # No event loop running, defer task creation until one is available
+            logger.debug("No event loop running, deferring cleanup task creation")
         
     async def start_cleanup_task_safe(self, immediate_for_testing=False):
         """Safely start the cleanup task, handling the case where no event loop is running."""
-        if not self._cleanup_running or self._cleanup_task is not None:
-            return
-            
+        with self._global_lock:
+            if not self._cleanup_running or self._cleanup_task is not None:
+                return
+                
         try:
             # Check if there's a running event loop
             loop = asyncio.get_running_loop()
@@ -436,7 +593,12 @@ class StateManager(BaseManager):
                         return  # Exit after immediate cleanup
                     
                     # Regular cleanup loop
-                    while self._cleanup_running:
+                    while True:
+                        # Thread-safely check if we should continue running
+                        with self._global_lock:
+                            if not self._cleanup_running:
+                                break
+                                
                         try:
                             cleanup_results = await self.cleanup()
                             logger.info(f"Cleanup completed: {cleanup_results}")
@@ -444,9 +606,9 @@ class StateManager(BaseManager):
                             logger.error(f"Error during cleanup: {e}")
                         
                         # Sleep interval based on cleanup policy
-                        if self._cleanup_config.policy == CleanupPolicy.AGGRESSIVE:
+                        if self._cleanup_config.policy == ICleanupPolicy.AGGRESSIVE:
                             await asyncio.sleep(60)  # Every minute
-                        elif self._cleanup_config.policy == CleanupPolicy.TTL:
+                        elif self._cleanup_config.policy == ICleanupPolicy.TTL:
                             await asyncio.sleep(300)  # Every 5 minutes
                         else:
                             await asyncio.sleep(3600)  # Default: every hour
@@ -456,22 +618,28 @@ class StateManager(BaseManager):
                     logger.error(f"Error in cleanup task: {e}")
                     
             # Create task only when we have a running loop
-            self._cleanup_task = asyncio.create_task(_cleanup_loop())
-            logger.info(f"Started state cleanup task with policy: {self._cleanup_config.policy.name}")
+            with self._global_lock:
+                self._cleanup_task = asyncio.create_task(_cleanup_loop())
+                logger.info(f"Started state cleanup task with policy: {self._cleanup_config.policy.name}")
         except RuntimeError:
             # No running event loop, log a message but don't fail
             logger.info("No running event loop available, cleanup task will start when event loop is available")
 
     async def stop_cleanup_task(self):
         """Stop the background cleanup task."""
-        self._cleanup_running = False
-        if self._cleanup_task:
-            self._cleanup_task.cancel()
+        cleanup_task = None
+        with self._global_lock:
+            self._cleanup_running = False
+            if self._cleanup_task:
+                cleanup_task = self._cleanup_task
+                self._cleanup_task = None
+        
+        if cleanup_task:
+            cleanup_task.cancel()
             try:
-                await self._cleanup_task
+                await cleanup_task
             except asyncio.CancelledError:
                 pass
-            self._cleanup_task = None
             logger.info("Stopped state cleanup task")
     
     async def _cleanup_resources(self, force: bool = False) -> None:
@@ -501,13 +669,14 @@ class StateManager(BaseManager):
             # Update resource count metric
             if self._metrics:
                 resource_ids = await self._backend.get_all_resource_ids()
-                self._metrics["resource_count"] = len(resource_ids)
+                with self._global_lock:
+                    self._metrics["resource_count"] = len(resource_ids)
             
             # Log cleanup results
             logger.info(f"State manager cleanup: removed {items_removed} items, force={force}")
             
             # Emit cleanup metrics
-            await self._event_queue.emit(
+            await self.event_bus.emit(
                 ResourceEventTypes.METRIC_RECORDED.value,
                 {
                     "metric": "state_cleanup",
@@ -521,7 +690,7 @@ class StateManager(BaseManager):
             logger.error(f"Error during state manager cleanup: {e}")
             
             # Emit error event for monitoring
-            await self._event_queue.emit(
+            await self.event_bus.emit(
                 ResourceEventTypes.RESOURCE_ERROR_OCCURRED.value,
                 {
                     "component_id": "state_manager",
@@ -540,7 +709,8 @@ class StateManager(BaseManager):
             return {"metrics_disabled": True}
             
         # Add backend-specific metrics if available
-        metrics = dict(self._metrics)
+        with self._global_lock:
+            metrics = dict(self._metrics)
         
         try:
             if hasattr(self._backend, 'get_database_stats'):
@@ -550,8 +720,9 @@ class StateManager(BaseManager):
             logger.error(f"Error getting backend stats: {e}")
             
         # Add cache stats
-        metrics["cache_size"] = len(self._states_cache)
-        metrics["cache_capacity"] = self._config.cache_size
+        with self._global_lock:
+            metrics["cache_size"] = len(self._states_cache)
+            metrics["cache_capacity"] = self._config.cache_size
         
         return metrics
     
@@ -757,9 +928,11 @@ class StateManager(BaseManager):
             
             # Get metrics if available
             if self._metrics:
-                resource_count = self._metrics.get("resource_count", 0)
-                backend_errors = self._metrics.get("backend_errors", 0)
-                metadata.update(self._metrics)
+                with self._global_lock:
+                    resource_count = self._metrics.get("resource_count", 0)
+                    backend_errors = self._metrics.get("backend_errors", 0)
+                    metrics_copy = dict(self._metrics)
+                metadata.update(metrics_copy)
             else:
                 # Count resources directly
                 resource_ids = await self._backend.get_all_resource_ids()

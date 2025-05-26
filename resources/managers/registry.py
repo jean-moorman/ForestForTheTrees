@@ -100,7 +100,7 @@ class CircuitBreakerRegistry:
             # If event queue is available, emit registration event
             if self._event_queue:
                 try:
-                    await self._event_queue.emit(
+                    await self.event_bus.emit(
                         ResourceEventTypes.SYSTEM_HEALTH_CHANGED.value,
                         {
                             "component": "circuit_breaker_registry",
@@ -143,7 +143,7 @@ class CircuitBreakerRegistry:
         # Emit event for state change
         if self._event_queue:
             try:
-                await self._event_queue.emit(
+                await self.event_bus.emit(
                     ResourceEventTypes.SYSTEM_HEALTH_CHANGED.value,
                     {
                         "component": "circuit_breaker",
@@ -237,7 +237,7 @@ class CircuitBreakerRegistry:
         # Emit event for reset operation
         if self._event_queue:
             try:
-                await self._event_queue.emit(
+                await self.event_bus.emit(
                     ResourceEventTypes.SYSTEM_HEALTH_CHANGED.value,
                     {
                         "component": "circuit_breaker_registry",

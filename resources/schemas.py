@@ -44,16 +44,6 @@ class ValidationEventPayload(BaseEventPayload):
     context: Dict[str, Any] = field(default_factory=dict)
 
 
-@dataclass
-class PropagationEventPayload(BaseEventPayload):
-    """Payload for Water agent propagation events."""
-    propagation_id: str = ""
-    origin_agent_id: str = ""
-    success: bool = False
-    affected_agents: List[str] = field(default_factory=list)
-    failures: List[Dict[str, Any]] = field(default_factory=list)
-    metrics: Dict[str, Any] = field(default_factory=dict)
-    context: Dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

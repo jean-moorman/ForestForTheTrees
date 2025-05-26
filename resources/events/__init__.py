@@ -9,6 +9,7 @@ from .types import ResourceEventTypes, Event
 from .queue import EventQueue
 from .monitoring import EventMonitor
 from .loop_management import EventLoopManager, ThreadLocalEventLoopStorage
+from .utils import get_llm_client
 
 # Public API
 __all__ = [
@@ -18,4 +19,5 @@ __all__ = [
     'EventMonitor',
     'EventLoopManager',
     'ThreadLocalEventLoopStorage',
+    'get_llm_client',
 ]

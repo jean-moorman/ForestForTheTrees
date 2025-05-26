@@ -6,157 +6,105 @@ event-based communication throughout the FFTT system, with support for event
 prioritization, batching, and reliable delivery.
 """
 import asyncio
+import concurrent.futures
 import logging
+import queue
 import random
+import sys
 import threading
 import time
 import uuid
 from datetime import datetime
-from typing import Dict, Any, List, Set, Optional, Callable, Awaitable, Tuple
+from typing import Dict, Any, List, Set, Optional, Callable, Awaitable, Tuple, Union
 
 from .types import Event, ResourceEventTypes
-from .loop_management import EventLoopManager
 from .backpressure import EventBackpressureManager
 from .utils import wait_with_backoff, with_timeout
 
 logger = logging.getLogger(__name__)
 
 class EventQueue:
-    """Async event queue with persistence, reliability and priority"""
+    """
+    Thread-safe event queue with priority processing, backpressure, and batching.
+    
+    This implementation uses the actor model, where the event processor runs in a dedicated
+    thread with its own event loop, and all communication with the queue is done through
+    thread-safe message passing. This avoids cross-thread event loop access issues.
+    """
     def __init__(self, max_size: int = 1000, queue_id: Optional[str] = None):
+        # Queue configuration
         self._max_size = max_size
-        self._queue = None  # Legacy queue - kept for backward compatibility
-        self._high_priority_queue = None  # Lazy initialization
-        self._normal_priority_queue = None  # Lazy initialization
-        self._low_priority_queue = None  # Lazy initialization
-        self._queue_lock = threading.RLock()  # Add a lock for queue operations
-        self._subscribers: Dict[str, Set[Tuple[Callable[[str, Dict[str, Any]], Awaitable[None]], Optional[asyncio.AbstractEventLoop], Optional[int]]]] = {}
+        self._id = queue_id or f"event_queue_{id(self)}"
+        
+        # Thread synchronization mechanism
+        self._queue_lock = threading.RLock()
+        
+        # Priority queues - these are implementation details and lazily initialized
+        # We use standard threading.Queue for thread-safety rather than asyncio.Queue
+        self._high_priority_queue = None
+        self._normal_priority_queue = None
+        self._low_priority_queue = None
+        
+        # Async converter queue - used only by the processor thread
+        self._async_high_queue = None
+        self._async_normal_queue = None
+        self._async_low_queue = None
+        
+        # Resource management
+        self._subscribers: Dict[str, Set[Callable[[str, Dict[str, Any]], Awaitable[None]]]] = {}
         self._event_history: List[Event] = []
-        self._running = False
-        self._task: Optional[asyncio.Task] = None
         self._processing_retries: Dict[str, int] = {}
         self._max_retries = 3
         self._retry_delay = 1.0  # seconds
-        self._creation_loop_id = None  # Store the ID of the loop that creates the queue
-        self._loop_thread_id = None  # Store the thread ID where the queue was created
-        self._id = queue_id or f"event_queue_{id(self)}"
+        
+        # State tracking
+        self._running = False
+        self._processor_thread = None
+        self._thread_executor = None
+        self._stop_event = threading.Event()
         
         # Initialize backpressure manager
         self._backpressure_manager = EventBackpressureManager()
-    
-        # Use centralized event loop manager
-        try:
-            current_loop = EventLoopManager.get_event_loop()
-            self._creation_loop_id = id(current_loop)
-            self._loop_thread_id = threading.get_ident()
-            
-            # Register with event loop manager for cleanup
-            EventLoopManager.register_resource(self._id, self)
-            
-            logger.debug(f"EventQueue {self._id} created in loop {self._creation_loop_id} on thread {self._loop_thread_id}")
-        except Exception as e:
-            logger.warning(f"Error during EventQueue initialization: {str(e)}")
-            self._creation_loop_id = None
-            self._loop_thread_id = threading.get_ident()
-
-    @property
-    def queue(self):
-        """Legacy queue property - redirects to normal_priority_queue"""
-        return self.normal_priority_queue
         
+        # Ensure these are preserved for consistent thread identity
+        self._processor_thread_id = None
+        self._creation_thread_id = threading.get_ident()
+        
+        logger.debug(f"EventQueue {self._id} created in thread {self._creation_thread_id}")
+    
     @property
     def high_priority_queue(self):
-        """Lazy initialization of high priority queue"""
-        if self._high_priority_queue is None:
-            try:
-                # Use the centralized event loop manager
-                current_loop = EventLoopManager.get_event_loop()
-                # High priority queue is smaller to ensure faster processing
-                self._high_priority_queue = asyncio.Queue(maxsize=max(10, self._max_size // 10))
-                if not hasattr(self, '_creation_loop_id') or self._creation_loop_id is None:
-                    self._creation_loop_id = id(current_loop)
-                    self._loop_thread_id = threading.get_ident()
-                logger.debug(f"High priority queue initialized in loop {self._creation_loop_id}")
-            except Exception as e:
-                logger.error(f"Cannot create high priority queue: {str(e)}")
-                raise RuntimeError(f"Cannot create high priority queue: {str(e)}")
-        return self._high_priority_queue
-        
+        """Thread-safe high priority queue for cross-thread access"""
+        with self._queue_lock:
+            if self._high_priority_queue is None:
+                self._high_priority_queue = queue.Queue(maxsize=max(10, self._max_size // 10))
+            return self._high_priority_queue
+    
     @property
     def normal_priority_queue(self):
-        """Lazy initialization of normal priority queue"""
-        if self._normal_priority_queue is None:
-            try:
-                # Use the centralized event loop manager
-                current_loop = EventLoopManager.get_event_loop()
-                self._normal_priority_queue = asyncio.Queue(maxsize=self._max_size)
-                if not hasattr(self, '_creation_loop_id') or self._creation_loop_id is None:
-                    self._creation_loop_id = id(current_loop)
-                    self._loop_thread_id = threading.get_ident()
-                # For backward compatibility
-                self._queue = self._normal_priority_queue
-                logger.debug(f"Normal priority queue initialized in loop {self._creation_loop_id}")
-            except Exception as e:
-                logger.error(f"Cannot create normal priority queue: {str(e)}")
-                raise RuntimeError(f"Cannot create normal priority queue: {str(e)}")
-        return self._normal_priority_queue
-        
+        """Thread-safe normal priority queue for cross-thread access"""
+        with self._queue_lock:
+            if self._normal_priority_queue is None:
+                self._normal_priority_queue = queue.Queue(maxsize=self._max_size)
+            return self._normal_priority_queue
+            
     @property
     def low_priority_queue(self):
-        """Lazy initialization of low priority queue"""
-        if self._low_priority_queue is None:
-            try:
-                # Use the centralized event loop manager
-                current_loop = EventLoopManager.get_event_loop()
-                # Low priority queue can be larger
-                self._low_priority_queue = asyncio.Queue(maxsize=self._max_size * 2)
-                if not hasattr(self, '_creation_loop_id') or self._creation_loop_id is None:
-                    self._creation_loop_id = id(current_loop)
-                    self._loop_thread_id = threading.get_ident()
-                logger.debug(f"Low priority queue initialized in loop {self._creation_loop_id}")
-            except Exception as e:
-                logger.error(f"Cannot create low priority queue: {str(e)}")
-                raise RuntimeError(f"Cannot create low priority queue: {str(e)}")
-        return self._low_priority_queue
-
-    async def _ensure_correct_loop(self):
-        """Ensure we're running in the correct event loop or handle mismatch"""
-        if self._queue is None:
-            return  # Queue not created yet, no issue
-            
-        try:
-            # Use the centralized event loop manager
-            current_loop = EventLoopManager.get_event_loop()
-            current_thread = threading.get_ident()
-            
-            # Check if we're in the correct loop
-            if current_thread != self._loop_thread_id or id(current_loop) != self._creation_loop_id:
-                logger.warning(f"Event queue {self._id} access from different context. "
-                               f"Created in loop {self._creation_loop_id} on thread {self._loop_thread_id}, "
-                               f"accessed from loop {id(current_loop)} on thread {current_thread}")
-                
-                # Use EventLoopManager to validate
-                is_valid = await EventLoopManager.validate_loop_for_resource(self._id)
-                if not is_valid:
-                    logger.error(f"Event queue {self._id} used in incorrect loop context")
-                    
-                    # Here we could implement safe event transfer, but for now just warn
-                    return False
-            
-            return True
-            
-        except Exception as e:
-            logger.warning(f"Error during loop validation: {str(e)}")
-            return False
+        """Thread-safe low priority queue for cross-thread access"""
+        with self._queue_lock:
+            if self._low_priority_queue is None:
+                self._low_priority_queue = queue.Queue(maxsize=self._max_size * 2)
+            return self._low_priority_queue
     
     async def emit(self, event_type: str, data: Dict[str, Any], 
-               correlation_id: Optional[str] = None, 
-               priority: str = "normal") -> bool:
-        """Emit event with back-pressure support, priority, and payload validation
+                   correlation_id: Optional[str] = None, 
+                   priority: str = "normal") -> bool:
+        """
+        Emit an event to the queue with thread-safety.
         
         Args:
             event_type: The type of event to emit
-            data: The event data
+            data: The event data payload
             correlation_id: Optional correlation ID for tracking related events
             priority: Event priority - "high", "normal", or "low"
             
@@ -166,11 +114,11 @@ class EventQueue:
         # Convert enum if needed
         event_type_str = event_type.value if hasattr(event_type, 'value') else str(event_type)
         
-        # Validate payload schema if needed
+        # Validate payload schema if available
         try:
             import inspect
             from resources.schemas import (
-                ValidationEventPayload, PropagationEventPayload, 
+                ValidationEventPayload,
                 ValidationStateChangedPayload, RefinementContextPayload,
                 RefinementIterationPayload, AgentUpdateRequestPayload,
                 # Phase Two schemas
@@ -187,12 +135,6 @@ class EventQueue:
                 ResourceEventTypes.EARTH_VALIDATION_COMPLETE.value: ValidationEventPayload,
                 ResourceEventTypes.EARTH_VALIDATION_STARTED.value: ValidationEventPayload,
                 ResourceEventTypes.EARTH_VALIDATION_FAILED.value: ValidationEventPayload,
-                
-                # Phase 0 Water Agent events
-                ResourceEventTypes.WATER_PROPAGATION_COMPLETE.value: PropagationEventPayload,
-                ResourceEventTypes.WATER_PROPAGATION_STARTED.value: PropagationEventPayload,
-                ResourceEventTypes.WATER_PROPAGATION_REJECTED.value: PropagationEventPayload,
-                ResourceEventTypes.WATER_PROPAGATION_FAILED.value: PropagationEventPayload,
                 
                 # Phase One validation events
                 ResourceEventTypes.PHASE_ONE_VALIDATION_STATE_CHANGED.value: ValidationStateChangedPayload,
@@ -272,10 +214,8 @@ class EventQueue:
                         elif field_name in ('timestamp', 'event_id'):
                             # Special handling for common fields
                             if field_name == 'timestamp':
-                                from datetime import datetime
                                 data[field_name] = datetime.now().isoformat()
                             elif field_name == 'event_id':
-                                import uuid
                                 data[field_name] = str(uuid.uuid4())
                 
                 logger.debug(f"Validated event {event_type_str} against schema {schema_class.__name__}")
@@ -292,32 +232,66 @@ class EventQueue:
             logger.warning(f"Error validating event payload for {event_type_str}: {e}")
         
         # Create event object with priority
-        event_id = str(uuid.uuid4())
+        try:
+            event_id = str(uuid.uuid4())
+        except ImportError:
+            event_id = f"event_{random.randint(10000, 99999)}"
+        
+        # Create the event object
         event = Event(
             event_type=event_type_str,
             data=data,
             correlation_id=correlation_id,
             priority=priority,
-            # Add an event_id field if it doesn't exist already in Event class
             metadata={"event_id": event_id}
         )
         
-        # Use EventLoopManager to ensure we're in the right loop context
-        try:
-            # Submit the actual emission to the creation loop of this queue
-            return await EventLoopManager.submit_to_resource_loop(self._id, self._emit_internal(event))
-        except Exception as e:
-            logger.error(f"Failed to emit event {event_type_str}: {e}")
-            # In case of critical events, try direct emission
-            if event_type_str in [
-                ResourceEventTypes.SYSTEM_HEALTH_CHANGED.value,
-                ResourceEventTypes.RESOURCE_ERROR_OCCURRED.value,
-                ResourceEventTypes.SYSTEM_ALERT.value
-            ]:
-                logger.warning(f"Critical event {event_type_str}, attempting direct emission")
-                return await self._emit_internal(event)
+        # Check rate limiting before queue insertion
+        if not self._backpressure_manager.check_rate_limit(event.event_type, event.priority):
             return False
+        
+        # Adjust priority based on system load
+        adjusted_priority = self._backpressure_manager.get_adjusted_priority(
+            event.event_type, event.priority
+        )
+        
+        # Check if event should be rejected due to backpressure
+        if self._backpressure_manager.should_reject_event(event.event_type, adjusted_priority):
+            return False
+        
+        # Update event priority if it was adjusted
+        if adjusted_priority != event.priority:
+            event.priority = adjusted_priority
+        
+        # The key change: thread-safe emission using standard Python queue
+        try:
+            # Select target queue based on priority
+            if event.priority == "high":
+                target_queue = self.high_priority_queue
+            elif event.priority == "low":
+                target_queue = self.low_priority_queue
+            else:
+                target_queue = self.normal_priority_queue
             
+            # Thread-safe queue insertion
+            target_queue.put_nowait(event)
+            
+            # Store event in history for debugging
+            with self._queue_lock:
+                self._event_history.append(event)
+                if len(self._event_history) > 10000:
+                    self._event_history = self._event_history[-10000:]
+            
+            logger.debug(f"Emitted {event.priority} priority event {event.event_type} to queue {self._id}")
+            return True
+            
+        except queue.Full:
+            logger.warning(f"Queue full, rejecting {event.priority} priority event {event.event_type}")
+            return False
+        except Exception as e:
+            logger.error(f"Failed to emit event {event.event_type}: {e}")
+            return False
+    
     async def emit_with_docs(
         self, 
         event_type: str, 
@@ -326,7 +300,8 @@ class EventQueue:
         priority: str = "normal",
         publisher_component: str = None
     ) -> bool:
-        """Emit event with documentation support.
+        """
+        Emit event with documentation support.
         
         This method validates the event against the registry and logs warnings if:
         1. The event type is not registered
@@ -376,181 +351,278 @@ class EventQueue:
         # Emit the event using the standard method
         return await self.emit(event_type, data, correlation_id, priority)
     
-    async def _emit_internal(self, event: Event) -> bool:
-        """Internal implementation of emit that runs in creation loop with enhanced back-pressure"""
-        # Update backpressure metrics
-        try:
-            # Check queue saturation
-            high_size = self.high_priority_queue.qsize()
-            high_capacity = self.high_priority_queue.maxsize
-            
-            normal_size = self.normal_priority_queue.qsize()
-            normal_capacity = self.normal_priority_queue.maxsize
-            
-            low_size = self.low_priority_queue.qsize()
-            low_capacity = self.low_priority_queue.maxsize
-            
-            # Update backpressure manager
-            self._backpressure_manager.update_saturation(
-                high_size, high_capacity,
-                normal_size, normal_capacity,
-                low_size, low_capacity
-            )
-        except (NotImplementedError, Exception) as e:
-            # Some queue implementations don't support qsize()
-            logger.debug(f"Error checking queue saturation: {e}")
-
-        # Manage history with size limit
-        self._event_history.append(event)
-        if len(self._event_history) > 10000:
-            self._event_history = self._event_history[-10000:]
-            
-        # Apply rate limiting
-        if not self._backpressure_manager.check_rate_limit(event.event_type, event.priority):
-            return False
-        
-        # Adjust priority based on system load
-        adjusted_priority = self._backpressure_manager.get_adjusted_priority(
-            event.event_type, event.priority
-        )
-        
-        # Check if event should be rejected due to backpressure
-        if self._backpressure_manager.should_reject_event(event.event_type, adjusted_priority):
-            return False
-        
-        # Update event priority if it was adjusted
-        if adjusted_priority != event.priority:
-            event.priority = adjusted_priority
-        
-        # Select queue based on priority
-        if event.priority == "high":
-            target_queue = self.high_priority_queue
-        elif event.priority == "low":
-            target_queue = self.low_priority_queue
-        else:
-            target_queue = self.normal_priority_queue
-        
-        # Put in queue - we should already be in the correct loop context
-        try:
-            await target_queue.put(event)
-            logger.debug(f"Emitted {event.priority} priority event {event.event_type} to queue {self._id}")
-            return True
-        except Exception as e:
-            logger.error(f"Failed to emit event {event.event_type}: {e}")
-            return False
-
     def get_nowait(self):
-        """Non-blocking get from the event queue with event loop safety."""
+        """
+        Non-blocking get from the event queue with thread safety.
+        
+        This method uses thread-safe Queue.get_nowait() to retrieve events, making it
+        safe to call from any thread without event loop concerns.
+        
+        Returns:
+            The next event in the queue.
+            
+        Raises:
+            asyncio.QueueEmpty: If the queue is empty
+        """
+        # First check high priority queue
         try:
-            # Check if we're in the right loop using EventLoopManager
-            try:
-                current_loop = EventLoopManager.get_event_loop()
-                current_thread = threading.get_ident()
-                
-                if self._queue is not None and (id(current_loop) != self._creation_loop_id or 
-                                            current_thread != self._loop_thread_id):
-                    logger.warning(f"Queue.get_nowait for {self._id} from different context. "
-                                f"Created in loop {self._creation_loop_id} on thread {self._loop_thread_id}, "
-                                f"accessed from loop {id(current_loop)} on thread {current_thread}")
-                    
-                    # In a non-async context, we can't await validate_loop_for_resource
-                    # Instead just log the warning and continue with best effort
-            except Exception:
-                # This could happen if called from a thread without an event loop
-                logger.warning(f"Error checking event loop when calling get_nowait for {self._id}")
-            
-            # Try to get from the queue
-            return self.queue.get_nowait()
-            
-        except asyncio.QueueEmpty:
-            # Propagate QueueEmpty for normal handling
-            raise
-        except RuntimeError as e:
-            if "different event loop" in str(e):
-                logger.error(f"Event loop mismatch in get_nowait for {self._id}: {e}")
-                
-                # Try to recreate the queue in the current context as a last resort
-                try:
-                    current_loop = EventLoopManager.get_event_loop()
-                    self._queue = asyncio.Queue(maxsize=self._max_size)
-                    self._creation_loop_id = id(current_loop)
-                    self._loop_thread_id = threading.get_ident()
-                    logger.warning(f"Recreated queue for {self._id} in current loop context")
-                    
-                    # Try get_nowait on the new queue, but it's likely empty
-                    return self._queue.get_nowait()
-                except (asyncio.QueueEmpty, Exception):
-                    # Simulate empty queue if recreation fails or new queue is empty
-                    raise asyncio.QueueEmpty()
-            else:
-                # For other RuntimeErrors, log and re-raise
-                logger.error(f"RuntimeError in get_nowait for {self._id}: {e}")
-                raise
-
+            return self.high_priority_queue.get_nowait()
+        except queue.Empty:
+            pass
+        
+        # Then normal priority queue
+        try:
+            return self.normal_priority_queue.get_nowait()
+        except queue.Empty:
+            pass
+        
+        # Finally low priority queue
+        try:
+            return self.low_priority_queue.get_nowait()
+        except queue.Empty:
+            # Raise asyncio.QueueEmpty for API compatibility
+            raise asyncio.QueueEmpty("All queues are empty")
+    
     async def wait_for_processing(self, timeout=5.0):
-        """Wait for all currently queued events to be processed."""
-        if self._queue is None:
-            return True  # Queue not initialized, nothing to wait for
+        """
+        Wait for all currently queued events to be processed.
+        
+        Args:
+            timeout: Maximum time to wait in seconds
             
+        Returns:
+            bool: True if queues are empty, False if timed out
+        """
         start_time = time.time()
         
-        # Wait until the queue is empty or timeout
+        # Wait until all queues are empty or timeout
         while time.time() - start_time < timeout:
             try:
-                if self._queue.qsize() == 0:
+                high_empty = self.high_priority_queue.empty()
+                normal_empty = self.normal_priority_queue.empty()
+                low_empty = self.low_priority_queue.empty()
+                
+                if high_empty and normal_empty and low_empty:
                     # Add a small delay to allow for any in-progress processing
                     await asyncio.sleep(0.1)
-                    if self._queue.qsize() == 0:  # Double check after delay
+                    if (self.high_priority_queue.empty() and
+                        self.normal_priority_queue.empty() and
+                        self.low_priority_queue.empty()):
                         return True
-            except NotImplementedError:
-                # Some queue implementations don't support qsize()
-                await asyncio.sleep(0.1)
-            
+            except Exception:
+                # If we can't check queue status, just wait
+                pass
+                
             await asyncio.sleep(0.05)
         
         return False  # Timed out
-
+    
+    async def start(self):
+        """
+        Start the event processing thread.
+        
+        This method starts a dedicated thread for event processing, maintaining
+        a clear thread boundary for the event loop used to process events.
+        """
+        with self._queue_lock:
+            # Check if already running
+            if self._running and self._processor_thread and self._processor_thread.is_alive():
+                logger.debug(f"Event processor thread for {self._id} already running")
+                return
+            
+            # Create stop event for signaling shutdown
+            self._stop_event = threading.Event()
+            
+            # Start processor thread
+            self._running = True
+            self._thread_executor = concurrent.futures.ThreadPoolExecutor(
+                max_workers=1,
+                thread_name_prefix=f"event_processor_{self._id}"
+            )
+            
+            # Submit the processor function to run in its own thread
+            self._processor_thread = threading.Thread(
+                target=self._processor_thread_main,
+                name=f"event_processor_{self._id}",
+                daemon=True  # Daemon thread will terminate when main thread exits
+            )
+            self._processor_thread.start()
+            
+            logger.info(f"Started event processor thread for queue {self._id}")
+    
+    def _processor_thread_main(self):
+        """
+        Main function for the processor thread.
+        
+        This runs in a dedicated thread and maintains its own event loop for
+        processing events from the queue.
+        """
+        try:
+            # Set up thread identity
+            self._processor_thread_id = threading.get_ident()
+            logger.debug(f"Processor thread {self._processor_thread_id} starting for queue {self._id}")
+            
+            # Create a new event loop for this thread
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            
+            # Create async queues for the processor
+            self._async_high_queue = asyncio.Queue(maxsize=max(10, self._max_size // 10))
+            self._async_normal_queue = asyncio.Queue(maxsize=self._max_size)
+            self._async_low_queue = asyncio.Queue(maxsize=self._max_size * 2)
+            
+            # Run the event processor coroutines in this loop
+            logger.debug(f"Starting queue to async bridge for {self._id}")
+            bridge_task = loop.create_task(self._queue_to_async_bridge())
+            logger.debug(f"Starting event processor for {self._id}")
+            processor_task = loop.create_task(self._process_events())
+            
+            # Wait for stop event while keeping event loop running
+            while not self._stop_event.is_set():
+                loop.run_until_complete(asyncio.sleep(0.1))
+            
+            # Cancel tasks
+            bridge_task.cancel()
+            processor_task.cancel()
+            
+            # Cleanup
+            pending = asyncio.all_tasks(loop)
+            loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+            loop.close()
+            
+            logger.debug(f"Processor thread {self._processor_thread_id} for queue {self._id} stopped")
+        except Exception as e:
+            logger.error(f"Error in processor thread: {e}", exc_info=True)
+    
+    async def _queue_to_async_bridge(self):
+        """
+        Bridge between threading.Queue and asyncio.Queue.
+        
+        This coroutine runs in the processor thread and continuously pulls events from
+        the thread-safe queues and puts them in the asyncio queues for async processing.
+        """
+        # Create a task for each priority level
+        tasks = [
+            asyncio.create_task(self._bridge_queue(
+                self.high_priority_queue, self._async_high_queue, "high")),
+            asyncio.create_task(self._bridge_queue(
+                self.normal_priority_queue, self._async_normal_queue, "normal")),
+            asyncio.create_task(self._bridge_queue(
+                self.low_priority_queue, self._async_low_queue, "low"))
+        ]
+        
+        # Wait for all bridge tasks to complete (should be when stop is called)
+        await asyncio.gather(*tasks, return_exceptions=True)
+    
+    async def _bridge_queue(self, thread_queue, async_queue, priority):
+        """
+        Bridge a specific queue from threading to asyncio.
+        
+        Args:
+            thread_queue: Source threading.Queue
+            async_queue: Target asyncio.Queue
+            priority: Priority level for logging
+        """
+        logger.debug(f"Starting bridge for {priority} queue")
+        while self._running and not self._stop_event.is_set():
+            try:
+                # Non-blocking check with timeout to allow for shutdown checks
+                try:
+                    # Using get with a timeout allows for checking stop condition
+                    event = thread_queue.get(timeout=0.1)
+                    logger.debug(f"Bridging {priority} event to async queue: {event.event_type}")
+                    await async_queue.put(event)
+                    thread_queue.task_done()
+                    logger.debug(f"Bridged {priority} event type: {event.event_type}")
+                except queue.Empty:
+                    # No events, just wait a bit
+                    await asyncio.sleep(0.01)
+            except Exception as e:
+                logger.error(f"Error in {priority} queue bridge: {e}")
+                await asyncio.sleep(0.1)
+    
     async def _process_events(self):
-        """Process events with batching support and priority handling"""
+        """
+        Process events with batching support and priority handling.
+        
+        This coroutine runs in the processor thread and processes events from
+        the asyncio queues, delivering them to subscribers.
+        """
         consecutive_errors = 0
         batch = []
         last_event_type = None
-        max_batch_size = 5  # Max events to process in a batch (reduced for testing)
+        max_batch_size = 5  # Max events to process in a batch
         
-        while self._running:
+        logger.debug(f"Event processor started for queue {self._id} with {len(self._subscribers)} subscribers")
+        
+        while self._running and not self._stop_event.is_set():
             try:
-                # Process high priority queue first - these are never batched for immediate processing
+                # Process high priority queue first - never batched
                 try:
-                    # Use shorter timeout for high priority check to avoid blocking
                     high_priority_event = await asyncio.wait_for(
-                        self.high_priority_queue.get(), 
+                        self._async_high_queue.get(), 
                         timeout=0.1
                     )
-                    # Process high priority event immediately
+                    logger.debug(f"Processing high priority event: {high_priority_event.event_type}")
                     await self._process_single_event(high_priority_event)
-                    self.high_priority_queue.task_done()
+                    self._async_high_queue.task_done()
                     consecutive_errors = 0
                     continue  # Continue loop to keep checking high priority first
                 except asyncio.TimeoutError:
                     # No high priority events, continue to normal priority
+                    logger.debug("No high priority events")
+                    
+                    # Try to process normal priority events with batching
+                    try:
+                        if not batch:  # Start a new batch
+                            normal_priority_event = await asyncio.wait_for(
+                                self._async_normal_queue.get(),
+                                timeout=0.1
+                            )
+                            logger.debug(f"Got first event for batch: {normal_priority_event.event_type}")
+                            batch.append(normal_priority_event)
+                            last_event_type = normal_priority_event.event_type
+                            self._async_normal_queue.task_done()
+                        
+                        # Try to fill batch with same event type
+                        batch_filled = False
+                        while len(batch) < max_batch_size and not batch_filled:
+                            try:
+                                # Non-blocking get
+                                normal_priority_event = self._async_normal_queue.get_nowait()
+                                logger.debug(f"Adding to batch: {normal_priority_event.event_type}")
+                                
+                                # Only batch events of the same type
+                                if normal_priority_event.event_type == last_event_type:
+                                    batch.append(normal_priority_event)
+                                    self._async_normal_queue.task_done()
+                                else:
+                                    # Put it back and stop batching for now
+                                    logger.debug(f"Different event type, stopping batch: {normal_priority_event.event_type}")
+                                    await self._async_normal_queue.put(normal_priority_event)
+                                    batch_filled = True
+                            except asyncio.QueueEmpty:
+                                logger.debug("Normal queue empty, processing current batch")
+                                batch_filled = True
+                        
+                        # Process the batch
+                        if batch:
+                            logger.debug(f"Processing batch of {len(batch)} events")
+                            await self._process_event_batch(batch)
+                            batch = []
+                            last_event_type = None
+                            consecutive_errors = 0
+                    except asyncio.TimeoutError:
+                        logger.debug("No normal priority events")
+                        # No normal priority events, check low priority
                     pass
                 except asyncio.QueueEmpty:
                     # Queue is empty, continue to normal priority
                     pass
-                except RuntimeError as e:
-                    # Handle loop mismatch for high priority queue
-                    if "different event loop" in str(e):
-                        with self._queue_lock:
-                            self._high_priority_queue = asyncio.Queue(maxsize=max(100, self._max_size // 10))
-                        consecutive_errors += 1
-                        await asyncio.sleep(min(consecutive_errors * 0.1, 5))
-                        continue
-                    else:
-                        raise
                 
                 # Check if we need to process the current batch
                 if batch and (len(batch) >= max_batch_size or 
-                             (last_event_type is not None and batch[0].event_type != last_event_type)):
+                            (last_event_type is not None and batch[0].event_type != last_event_type)):
                     await self._process_event_batch(batch)
                     batch = []
                 
@@ -558,7 +630,7 @@ class EventQueue:
                 try:
                     # Use shorter timeout to balance responsiveness
                     normal_event = await asyncio.wait_for(
-                        self.normal_priority_queue.get(), 
+                        self._async_normal_queue.get(), 
                         timeout=0.2
                     )
                     consecutive_errors = 0
@@ -581,7 +653,7 @@ class EventQueue:
                         last_event_type = normal_event.event_type
                         logger.debug(f"Started new batch with event type {last_event_type}")
                         
-                    self.normal_priority_queue.task_done()
+                    self._async_normal_queue.task_done()
                     
                 except asyncio.TimeoutError:
                     # Process any pending batch before checking low priority
@@ -589,32 +661,20 @@ class EventQueue:
                         logger.debug(f"Processing batch of {len(batch)} events of type {batch[0].event_type} after timeout")
                         await self._process_event_batch(batch)
                         batch = []
-                        
+                    
                     # Only check low priority if normal is empty
                     try:
                         # Use longer timeout for low priority
                         low_event = await asyncio.wait_for(
-                            self.low_priority_queue.get(), 
+                            self._async_low_queue.get(), 
                             timeout=0.5
                         )
                         await self._process_single_event(low_event)
-                        self.low_priority_queue.task_done()
+                        self._async_low_queue.task_done()
                         consecutive_errors = 0
                     except (asyncio.TimeoutError, asyncio.QueueEmpty):
                         # No events in any queue, sleep briefly
                         await asyncio.sleep(0.1)
-                        
-                except RuntimeError as e:
-                    # Handle loop mismatch for normal priority queue
-                    if "different event loop" in str(e):
-                        with self._queue_lock:
-                            self._normal_priority_queue = asyncio.Queue(maxsize=self._max_size)
-                            # Update legacy queue reference
-                            self._queue = self._normal_priority_queue
-                        consecutive_errors += 1
-                        await asyncio.sleep(min(consecutive_errors * 0.1, 5))
-                    else:
-                        raise
                 
             except Exception as e:
                 logger.error(f"Error in event processing: {e}", exc_info=True)
@@ -628,211 +688,139 @@ class EventQueue:
                 await self._process_event_batch(batch)
             except Exception as e:
                 logger.error(f"Error processing final batch during shutdown: {e}")
-                
+    
     async def _process_event_batch(self, batch: List[Event]):
-        """Process a batch of events with the same event type"""
+        """
+        Process a batch of events with the same event type.
+        
+        Args:
+            batch: List of events to process as a batch
+        """
         if not batch:
-            logger.debug("Attempted to process empty batch, skipping")
             return
             
+        logger.debug(f"Processing batch of {len(batch)} events")
+        
+        # For single events, process them individually without batch wrapping
+        if len(batch) == 1:
+            await self._process_single_event(batch[0])
+            return
+        
+        # All events in the batch should have the same type
         event_type = batch[0].event_type
-        logger.debug(f"Processing batch of {len(batch)} events of type {event_type}")
         
-        # Get subscribers for this event type
-        subscribers = self._subscribers.get(event_type, set())
-        
-        if not subscribers:
-            logger.debug(f"No subscribers for event type: {event_type}")
-            return
-            
-        logger.debug(f"Found {len(subscribers)} subscribers for event type {event_type}")
-            
-        # Group events for batch processing
-        batched_data = []
+        # Create a batch payload
+        batch_items = []
         for event in batch:
-            batched_data.append(event.data)
+            # Add to batch items
+            batch_items.append(event.data)
             
-        # Create a single batched event, preserving correlation ID
-        correlation_id = batch[0].correlation_id if batch and hasattr(batch[0], 'correlation_id') and batch[0].correlation_id else None
-        
-        # Create a direct data dictionary instead of Event object for simpler testing
-        event_data = {
+        # Create a batch payload
+        batch_payload = {
             "batch": True,
             "count": len(batch),
-            "items": batched_data,
-            "correlation_id": correlation_id  # Add correlation ID to batch data too
+            "items": batch_items,
+            "correlation_id": batch[0].correlation_id
         }
         
-        # Create the event with simpler structure
-        batched_event = Event(
-            event_type=event_type,
-            data=event_data,
-            correlation_id=correlation_id  # Set correlation ID on Event object
-        )
-        
-        # Process batch for each subscriber
-        for subscriber_entry in subscribers:
-            callback, loop_id, thread_id = subscriber_entry
-            # Generate a unique event_id for retry tracking
-            event_id = f"{event_type}_batch_{id(callback)}_{datetime.now().timestamp()}"
+        # Find subscribers
+        with self._queue_lock:
+            handlers = set(self._subscribers.get(event_type, set()))
+            
+        logger.debug(f"Found {len(handlers)} subscribers for batch of {event_type} events")
+            
+        # Deliver to all subscribers
+        for handler in handlers:
             try:
-                # Only pass the required arguments to _deliver_event
-                await self._deliver_event(batched_event, callback, event_id)
+                # Call the handler with the batch payload
+                logger.debug(f"Delivering batch to handler {handler}")
+                await handler(event_type, batch_payload)
             except Exception as e:
-                logger.error(f"Error in batch event delivery for {event_type}: {e}")
-                # Continue to next subscriber
-
+                logger.error(f"Error in batch event handler: {e}", exc_info=True)
+    
     async def _process_single_event(self, event):
-        """Process a single event with better error isolation"""
-        # Get subscribers for this event type
-        subscribers = self._subscribers.get(event.event_type, set())
+        """
+        Process a single event.
+        
+        Args:
+            event: The event to process
+        """
+        logger.debug(f"Processing single event: {event.event_type}")
+        
+        # Get subscribers for this event type - thread-safe copy
+        subscribers = []
+        with self._queue_lock:
+            if event.event_type in self._subscribers:
+                subscribers = list(self._subscribers[event.event_type])
         
         if not subscribers:
             logger.debug(f"No subscribers for event type: {event.event_type}")
             return
         
-        # Process event for each subscriber
-        for subscriber_entry in subscribers:
-            callback, loop_id, thread_id = subscriber_entry
+        logger.debug(f"Found {len(subscribers)} subscribers for {event.event_type}")
+        
+        # Process event for each subscriber with error isolation
+        for callback in subscribers:
             # Generate a unique event_id for retry tracking
             event_id = f"{event.event_type}_{id(callback)}_{datetime.now().timestamp()}"
+            logger.debug(f"Delivering event {event_id} to callback {callback}")
             try:
-                # Only pass the required arguments to _deliver_event
                 await self._deliver_event(event, callback, event_id)
+                logger.debug(f"Event {event_id} delivered successfully")
             except Exception as e:
                 logger.error(f"Error in event delivery for {event.event_type}: {e}")
-                # Continue to next subscriber instead of failing completely
-
-    async def start(self):
-        """Start event processing safely in the current event loop"""
-        # Use EventLoopManager to submit to the creation loop
-        await EventLoopManager.submit_to_resource_loop(self._id, self._start_internal())
+                # Continue to next subscriber
     
-    async def _start_internal(self):
-        """Internal implementation for starting the queue in creation loop"""
-        logger.info(f"Starting event queue {self._id} in creation loop")
-        
-        # Force initialization of all priority queues
-        # This ensures they're all created before the event processor starts
-        self.high_priority_queue  # Initialize high priority queue
-        self.normal_priority_queue  # Initialize normal priority queue
-        self.low_priority_queue  # Initialize low priority queue
-        
-        logger.debug(f"All priority queues initialized for {self._id}")
-        
-        # Check if already running
-        if self._running and self._task and not self._task.done():
-            logger.info(f"Event processor task for {self._id} already running")
-            return
-            
-        # Create a new task in the current loop
-        self._running = True
-        self._task = asyncio.create_task(self._process_events())
-        logger.info(f"Event processor task created for queue {self._id}")
-        
-        # Set name on task for better debugging if supported
-        if hasattr(self._task, 'set_name'):
-            self._task.set_name(f"event_processor_{self._id}")
-        
-        # Update registration with EventLoopManager to ensure proper resource tracking
-        EventLoopManager.register_resource(self._id, self)
-
     async def stop(self):
-        """Stop event processing safely using the creation loop"""
-        # Use EventLoopManager to submit to the creation loop
-        await EventLoopManager.submit_to_resource_loop(self._id, self._stop_internal())
-    
-    async def _stop_internal(self):
-        """Internal implementation for stopping the queue in creation loop"""
-        logger.info(f"Stopping event queue {self._id}")
+        """
+        Stop event processing safely.
         
-        # Mark as not running to prevent new tasks
-        self._running = False
+        This method signals the processor thread to stop and waits for it to
+        complete, with a timeout to avoid hanging.
+        """
+        with self._queue_lock:
+            if not self._running:
+                logger.debug(f"Event queue {self._id} already stopped")
+                return
+            
+            logger.info(f"Stopping event queue {self._id}")
+            
+            # Signal stop
+            self._running = False
+            if self._stop_event:
+                self._stop_event.set()
         
-        # Try to safely drain the queues with timeout protection
-        try:
-            total_items = 0
-            try:
-                total_items += self.high_priority_queue.qsize()
-                total_items += self.normal_priority_queue.qsize()
-                total_items += self.low_priority_queue.qsize()
-            except NotImplementedError:
-                # Some queue implementations don't support qsize
-                pass
-                
-            if total_items > 0:
-                logger.info(f"Waiting for {total_items} queued events to complete in queue {self._id}")
-                
-                # Use shorter timeout for faster shutdown
-                try:
-                    await asyncio.wait_for(self._wait_for_empty_queues(), timeout=3.0)
-                    logger.info(f"Successfully drained queue {self._id}")
-                except asyncio.TimeoutError:
-                    logger.warning(f"Timed out waiting for queue {self._id} to drain")
-            else:
-                logger.info(f"Queues for {self._id} are already empty")
-        except Exception as e:
-            logger.warning(f"Error draining queue {self._id}: {e}")
+        # Wait for thread to finish with timeout
+        if self._processor_thread and self._processor_thread.is_alive():
+            logger.debug(f"Waiting for processor thread to stop for queue {self._id}")
+            self._processor_thread.join(timeout=5.0)
+            
+            if self._processor_thread.is_alive():
+                logger.warning(f"Processor thread did not stop cleanly for queue {self._id}")
         
-        # Cancel the processor task
-        if self._task and not self._task.done():
-            try:
-                logger.info(f"Cancelling event processor task for queue {self._id}")
-                self._task.cancel()
-                
-                # Wait with timeout for the task to be cancelled
-                try:
-                    await asyncio.wait_for(asyncio.shield(self._task), timeout=2.0)
-                except (asyncio.TimeoutError, asyncio.CancelledError):
-                    pass
-            except Exception as e:
-                logger.error(f"Error cancelling event processor task: {e}")
+        # Shutdown thread executor
+        if self._thread_executor:
+            self._thread_executor.shutdown(wait=False)
         
         # Clear resources
-        subscribers_count = sum(len(subs) for subs in self._subscribers.values())
-        logger.info(f"Clearing {subscribers_count} subscribers from queue {self._id}")
-        self._subscribers.clear()
+        with self._queue_lock:
+            subscribers_count = sum(len(subs) for subs in self._subscribers.values())
+            logger.info(f"Clearing {subscribers_count} subscribers from queue {self._id}")
+            self._subscribers.clear()
+            
+            # Clear processing retries to prevent memory leaks
+            retry_count = len(self._processing_retries)
+            if retry_count > 0:
+                logger.debug(f"Clearing {retry_count} processing retries from queue {self._id}")
+            self._processing_retries.clear()
         
-        # Clear processing retries to prevent memory leaks
-        retry_count = len(self._processing_retries)
-        if retry_count > 0:
-            logger.info(f"Clearing {retry_count} processing retries from queue {self._id}")
-        self._processing_retries.clear()
-        
-        # Unregister from EventLoopManager
-        EventLoopManager.unregister_resource(self._id)
-        
-        # Remove task reference
-        self._task = None
-        
-        logger.info(f"Event queue {self._id} stopped successfully")
+        logger.info(f"Event queue {self._id} stopped")
     
-    async def _wait_for_empty_queues(self):
-        """Wait for all queues to be empty"""
-        while self._running:
-            try:
-                high_empty = self.high_priority_queue.empty()
-                normal_empty = self.normal_priority_queue.empty()
-                low_empty = self.low_priority_queue.empty()
-                
-                if high_empty and normal_empty and low_empty:
-                    await asyncio.sleep(0.1)  # Brief pause to allow any in-progress processing
-                    
-                    # Double-check all are still empty
-                    if (self.high_priority_queue.empty() and 
-                        self.normal_priority_queue.empty() and 
-                        self.low_priority_queue.empty()):
-                        return True
-                        
-                await asyncio.sleep(0.1)
-            except Exception:
-                # If we can't check queue status, assume not empty
-                await asyncio.sleep(0.1)
-
     async def subscribe(self, 
-                        event_type: str, 
-                        callback: Callable[[str, Dict[str, Any]], Awaitable[None]]) -> None:
-        """Add subscriber for an event type with loop context tracking
+                      event_type: str, 
+                      callback: Callable[[str, Dict[str, Any]], Awaitable[None]]) -> None:
+        """
+        Add subscriber for an event type.
         
         Args:
             event_type: The event type to subscribe to
@@ -847,62 +835,49 @@ class EventQueue:
         if hasattr(event_type, 'value'):
             event_type = event_type.value
             
-        # Use EventLoopManager to submit to the queue's creation loop
-        await EventLoopManager.submit_to_resource_loop(self._id, self._subscribe_internal(event_type, callback))
-    
-    async def _subscribe_internal(self, event_type: str, callback: Callable):
-        """Internal implementation of subscribe that runs in creation loop"""
-        # Get current thread and loop context for tracking
-        thread_id = threading.get_ident()
-        
-        try:
-            loop = asyncio.get_running_loop()
-            loop_id = id(loop)
-        except RuntimeError:
-            logger.warning(f"No event loop when subscribing to {event_type}")
-            loop_id = None
-        
-        # Create a set for this event type if it doesn't exist
-        if event_type not in self._subscribers:
-            self._subscribers[event_type] = set()
-        
-        # Add subscriber with context
-        self._subscribers[event_type].add((callback, loop_id, thread_id))
+        # Thread-safe subscriber registration
+        with self._queue_lock:
+            # Create a set for this event type if it doesn't exist
+            if event_type not in self._subscribers:
+                self._subscribers[event_type] = set()
+            
+            # Add subscriber
+            self._subscribers[event_type].add(callback)
         
         # Check if callback is a coroutine function for logging
         is_coroutine = asyncio.iscoroutinefunction(callback)
-        logger.debug(f"Added subscriber for {event_type} events (coroutine={is_coroutine}, thread={thread_id}, loop={loop_id})")
-
+        logger.debug(f"Added subscriber for {event_type} events (coroutine={is_coroutine})")
+    
     async def unsubscribe(self, 
-                          event_type: str, 
-                          callback: Callable[[str, Dict[str, Any]], Awaitable[None]]) -> None:
-        """Remove a subscriber"""
+                         event_type: str, 
+                         callback: Callable[[str, Dict[str, Any]], Awaitable[None]]) -> None:
+        """
+        Remove a subscriber.
+        
+        Args:
+            event_type: The event type to unsubscribe from
+            callback: The callback function to remove
+        """
         # Convert enum to string if needed
         if hasattr(event_type, 'value'):
             event_type = event_type.value
             
-        # Use EventLoopManager to submit to the queue's creation loop
-        await EventLoopManager.submit_to_resource_loop(self._id, self._unsubscribe_internal(event_type, callback))
-    
-    async def _unsubscribe_internal(self, event_type: str, callback: Callable):
-        """Internal implementation of unsubscribe that runs in creation loop"""
-        if event_type in self._subscribers:
-            # Find the subscriber entry with matching callback
-            to_remove = None
-            for entry in self._subscribers[event_type]:
-                subscriber_callback, _, _ = entry
-                if subscriber_callback == callback:
-                    to_remove = entry
-                    break
-            
-            if to_remove:
-                self._subscribers[event_type].discard(to_remove)
+        # Thread-safe subscriber removal
+        with self._queue_lock:
+            if event_type in self._subscribers and callback in self._subscribers[event_type]:
+                self._subscribers[event_type].remove(callback)
                 logger.debug(f"Removed subscriber for {event_type} events")
     
     async def emit_error(self,
-                        error,
-                        additional_context: Optional[Dict[str, Any]] = None) -> None:
-        """Emit error event with full context"""
+                       error,
+                       additional_context: Optional[Dict[str, Any]] = None) -> None:
+        """
+        Emit error event with full context.
+        
+        Args:
+            error: The error to emit
+            additional_context: Additional context to include
+        """
         event_data = {
             "severity": error.severity.name,
             "resource_id": error.resource_id,
@@ -924,135 +899,122 @@ class EventQueue:
             ResourceEventTypes.RESOURCE_ERROR_OCCURRED.value,
             event_data
         )
-
+    
     async def _deliver_event(self, event: Event, callback, event_id: str) -> None:
-        """Deliver event with proper loop context and retry handling"""
-        # Initialize retry counter if needed
-        if event_id not in self._processing_retries:
-            self._processing_retries[event_id] = 0
+        """
+        Deliver event to a subscriber with retry handling.
         
-        retry_count = self._processing_retries[event_id]
-        max_retries = self._max_retries
-        
-        # Find the subscriber's loop and thread context
-        subscriber_loop_id = None
-        subscriber_thread_id = None
-        
-        # Extract loop and thread info from subscriber entry
-        for event_type, subscribers in self._subscribers.items():
-            for subscriber_entry in subscribers:
-                sub_callback, sub_loop_id, sub_thread_id = subscriber_entry
-                if sub_callback == callback:
-                    subscriber_loop_id = sub_loop_id
-                    subscriber_thread_id = sub_thread_id
-                    break
-            if subscriber_loop_id is not None:
-                break
-        
-        # Attempt delivery with proper context
-        while retry_count <= max_retries:
+        Args:
+            event: The event to deliver
+            callback: The callback function
+            event_id: Unique ID for tracking this delivery
+        """
+        # Attempt delivery with retries
+        for attempt in range(self._max_retries + 1):  # 0, 1, 2, 3 (4 total attempts)
             try:
-                # If we have subscriber loop context, use it for delivery
-                if subscriber_loop_id is not None and subscriber_thread_id is not None:
-                    # Check if any matching loop exists in registry
-                    target_loop = None
-                    for loop_info in EventLoopManager._loop_storage.list_all_loops():
-                        loop, thread_id = loop_info
-                        if id(loop) == subscriber_loop_id:
-                            target_loop = loop
-                            break
-                    
-                    if target_loop is not None:
-                        # We found the subscriber's loop, submit to it
-                        try:
-                            # Use run_coroutine_threadsafe for cross-thread delivery
-                            future = asyncio.run_coroutine_threadsafe(
-                                self._call_subscriber(callback, event),
-                                target_loop
-                            )
-                            # Wait for the result with timeout protection
-                            result = await asyncio.wrap_future(future)
-                            
-                            # Delivery succeeded
-                            self._processing_retries.pop(event_id, None)
-                            return
-                        except concurrent.futures.TimeoutError:
-                            # Timeout, increment retry counter and continue
-                            retry_count += 1
-                            self._processing_retries[event_id] = retry_count
-                            logger.warning(f"Timeout delivering event {event_id} to subscriber loop, retry {retry_count}/{max_retries}")
-                        except Exception as e:
-                            # For specific error types, don't retry
-                            retry_count += 1
-                            self._processing_retries[event_id] = retry_count
-                            logger.warning(f"Error delivering event {event_id}: {e}, retry {retry_count}/{max_retries}")
-                    else:
-                        # Subscriber loop no longer exists, fall back to direct delivery
-                        logger.warning(f"Subscriber loop for event {event_id} no longer exists, using direct delivery")
-                        await self._call_subscriber(callback, event)
-                        self._processing_retries.pop(event_id, None)
-                        return
+                # Direct async call to the callback
+                if asyncio.iscoroutinefunction(callback):
+                    logger.debug(f"Calling async callback {callback} with {event.event_type}")
+                    await callback(event.event_type, event.data)
+                    logger.debug(f"Async callback completed for {event.event_type}")
                 else:
-                    # No loop context info, use direct delivery
-                    await self._call_subscriber(callback, event)
-                    self._processing_retries.pop(event_id, None)
-                    return
+                    # If not async, run in executor to avoid blocking
+                    logger.debug(f"Calling sync callback {callback} with {event.event_type}")
+                    loop = asyncio.get_event_loop()
+                    await loop.run_in_executor(
+                        None, 
+                        lambda: callback(event.event_type, event.data)
+                    )
+                    logger.debug(f"Sync callback completed for {event.event_type}")
+                
+                # Success
+                logger.debug(f"Event {event_id} delivered successfully")
+                return
+                
             except Exception as e:
-                # Retry for retriable errors
-                retry_count += 1
-                self._processing_retries[event_id] = retry_count
-                
-                if retry_count > max_retries:
-                    logger.error(f"Max retries reached for event {event_id}")
-                    self._processing_retries.pop(event_id, None)
-                    raise
-                
-                # Exponential backoff with jitter
-                base_delay = self._retry_delay * (2 ** (retry_count - 1))
-                jitter = random.uniform(0, base_delay * 0.1)  # 10% jitter
-                delay = base_delay + jitter
-                
-                logger.warning(f"Retry {retry_count}/{max_retries} for event {event_id} after error: {e}")
-                await asyncio.sleep(delay)
-    
-    async def _call_subscriber(self, callback, event: Event):
-        """Simple wrapper to call subscriber with timing metrics"""
-        start_time = time.monotonic()
+                if attempt < self._max_retries:
+                    # Log error and retry
+                    logger.warning(f"Error delivering event {event_id}: {e}, retry {attempt+1}/{self._max_retries}")
+                    
+                    # Exponential backoff with jitter
+                    base_delay = self._retry_delay * (2 ** attempt)
+                    jitter = random.uniform(0, base_delay * 0.1)
+                    await asyncio.sleep(base_delay + jitter)
+                else:
+                    # Max retries reached
+                    logger.error(f"Event {event_id} failed after {self._max_retries} retries: {e}")
         
-        try:
-            # Direct call with explicit tuple unpacking prevention
-            # Get event_type and data directly from the event
-            event_type = event.event_type
-            data = event.data
-            
-            # Call directly with positional args
-            if asyncio.iscoroutinefunction(callback):
-                await callback(event_type, data)
-            else:
-                callback(event_type, data)
-            
-            delivery_time = time.monotonic() - start_time
-            
-            # Get a unique ID for logging (event_id may not be accessible here)
-            event_id = event.metadata.get("event_id", str(id(event)))
-            logger.debug(f"Delivered event {event_id} in {delivery_time:.3f}s")
-        except Exception as e:
-            logger.error(f"Error delivering event to subscriber: {e}")
-            # Don't propagate errors from event handling to prevent event loop disruption
-
-    def get_queue_size(self) -> int:
-        """Get current queue size"""
-        return self.queue.qsize()
+        # Max retries reached, clear retry counter
+        with self._queue_lock:
+            if event_id in self._processing_retries:
+                del self._processing_retries[event_id]
+        
+        logger.error(f"Max retries reached for event {event_id}")
     
-    def get_subscriber_count(self, event_type: str) -> int:
-        """Get number of subscribers for an event type"""
-        return len(self._subscribers.get(event_type, set()))
+    def get_queue_size(self) -> Dict[str, int]:
+        """
+        Get current queue sizes for all priority levels.
+        
+        Returns:
+            Dict[str, int]: Dictionary of queue sizes by priority
+        """
+        try:
+            return {
+                "high": self.high_priority_queue.qsize(),
+                "normal": self.normal_priority_queue.qsize(),
+                "low": self.low_priority_queue.qsize(),
+                "total": (self.high_priority_queue.qsize() + 
+                          self.normal_priority_queue.qsize() + 
+                          self.low_priority_queue.qsize())
+            }
+        except NotImplementedError:
+            # Some queue implementations don't support qsize
+            return {"high": -1, "normal": -1, "low": -1, "total": -1}
+    
+    def get_subscriber_count(self, event_type: str = None) -> Union[int, Dict[str, int]]:
+        """
+        Get number of subscribers.
+        
+        Args:
+            event_type: Optional specific event type to count subscribers for
+            
+        Returns:
+            Union[int, Dict[str, int]]: Subscriber count for specified event type
+                                        or dictionary of counts by event type
+        """
+        with self._queue_lock:
+            if event_type:
+                # Convert enum to string if needed
+                if hasattr(event_type, 'value'):
+                    event_type = event_type.value
+                return len(self._subscribers.get(event_type, set()))
+            else:
+                # Return counts for all event types
+                return {et: len(subs) for et, subs in self._subscribers.items()}
     
     async def get_recent_events(self, 
                               event_type: Optional[str] = None,
                               limit: int = 100) -> List[Event]:
-        """Get recent events, optionally filtered by type"""
-        events = self._event_history
+        """
+        Get recent events, optionally filtered by type.
+        
+        Args:
+            event_type: Optional event type to filter by
+            limit: Maximum number of events to return
+            
+        Returns:
+            List[Event]: List of recent events
+        """
+        with self._queue_lock:
+            events = list(self._event_history)
+            
         if event_type:
+            # Convert enum to string if needed
+            if hasattr(event_type, 'value'):
+                event_type = event_type.value
             events = [e for e in events if e.event_type == event_type]
+            
         return events[-limit:]
+
+# Import needed for backwards compatibility 
+import queue

@@ -86,11 +86,12 @@ class EventMonitor:
                 
     async def _check_health(self):
         """Check event system health metrics"""
-        queue_size = self.event_queue.get_queue_size()
+        queue_sizes = self.event_queue.get_queue_size()
+        total_queue_size = queue_sizes["total"]
         max_size = self.event_queue._max_size
-        queue_percentage = queue_size / max_size if max_size > 0 else 0
+        queue_percentage = total_queue_size / max_size if max_size > 0 else 0
         
-        logger.debug(f"Health check: queue_size={queue_size}, max_size={max_size}, percentage={queue_percentage:.2f}")
+        logger.debug(f"Health check: queue_size={total_queue_size}, max_size={max_size}, percentage={queue_percentage:.2f}")
         
         total_subscribers = sum(
             self.event_queue.get_subscriber_count(event_type.value)
@@ -120,7 +121,7 @@ class EventMonitor:
             source="event_monitor",
             description=description,
             metadata={
-                "queue_size": queue_size,
+                "queue_size": total_queue_size,
                 "queue_percentage": queue_percentage,
                 "total_subscribers": total_subscribers,
                 "retry_count": len(self.event_queue._processing_retries)

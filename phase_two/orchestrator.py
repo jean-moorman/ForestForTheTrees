@@ -30,7 +30,18 @@ from phase_two.agents.system_test import SystemTestAgent
 from phase_two.agents.deployment_test import DeploymentTestAgent
 from phase_two.test_execution import TestExecutor
 from phase_two.component_development import ComponentDeveloper
-from phase_two.coordination import PhaseTwoCoordinator
+# Import the PhaseTwoCoordinator from the coordination.py file 
+# (not the coordination/ package directory)
+import importlib.util
+import sys
+import os
+
+# Get the path to the coordination.py file specifically
+coordination_file_path = os.path.join(os.path.dirname(__file__), 'coordination.py')
+spec = importlib.util.spec_from_file_location("phase_two_coordination", coordination_file_path)
+coordination_module = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(coordination_module)
+PhaseTwoCoordinator = coordination_module.PhaseTwoCoordinator
 from phase_two.utils import sort_components_by_dependencies
 
 logger = logging.getLogger(__name__)

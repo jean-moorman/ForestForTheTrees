@@ -24,14 +24,19 @@ from phase_one import (
     
     # Agents
     ReflectiveAgent,
-    GardenPlannerAgent, 
+    GardenPlannerAgent,
+    EarthAgent,
     EnvironmentalAnalysisAgent,
     RootSystemArchitectAgent,
     TreePlacementPlannerAgent,
     
     # Validation
     PhaseOneValidator,
-    PhaseZeroInterface
+    PhaseZeroInterface,
+    GardenPlannerValidator,
+    
+    # Workflow
+    PhaseOneWorkflow
 )
 
 # Configure logging
@@ -50,9 +55,13 @@ __all__ = [
     'CircuitBreakerDefinition',
     'ReflectiveAgent',
     'GardenPlannerAgent',
+    'EarthAgent',
     'EnvironmentalAnalysisAgent',
     'RootSystemArchitectAgent',
     'TreePlacementPlannerAgent',
     'PhaseOneValidator',
     'PhaseZeroInterface',
+    'GardenPlannerValidator',
+    'PhaseOneWorkflow',
+    'SequentialAgentCoordinator',
 ]

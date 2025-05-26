@@ -53,9 +53,12 @@ class CacheManager(BaseManager):
                        metadata: Optional[Dict[str, Any]] = None) -> None:
         """Set cache value with metadata"""
         async def _set():
-            # Check size limit
-            if len(self._cache) >= self._cleanup_config.max_size:
-                await self._cleanup_oldest()
+            # Check size limit - cleanup before adding if at limit
+            if (self._cleanup_config.max_size is not None and 
+                len(self._cache) >= self._cleanup_config.max_size):
+                # Force removal of oldest entries to make room
+                num_to_remove = len(self._cache) - self._cleanup_config.max_size + 1
+                await self._cleanup_oldest(force_remove_count=num_to_remove)
 
             self._cache[key] = value
             self._cache_metadata[key] = {
@@ -84,7 +87,7 @@ class CacheManager(BaseManager):
                         details={"value_type": type(value).__name__}
                     )
     
-            await self._event_queue.emit(
+            await self.event_bus.emit(
                 ResourceEventTypes.CACHE_UPDATED.value,
                 {
                     "key": key,
@@ -113,7 +116,7 @@ class CacheManager(BaseManager):
             self._cache_metadata.pop(key, None)
             self._memory_monitor._resource_sizes.pop(f"cache_{key}", None)
             
-            await self._event_queue.emit(
+            await self.event_bus.emit(
                 ResourceEventTypes.CACHE_UPDATED.value,
                 {
                     "key": key,
@@ -123,8 +126,12 @@ class CacheManager(BaseManager):
             
         await self.protected_operation("invalidate_cache", _invalidate)
 
-    async def _cleanup_oldest(self) -> None:
-        """Remove oldest cache entries"""
+    async def _cleanup_oldest(self, force_remove_count: Optional[int] = None) -> None:
+        """Remove oldest cache entries
+        
+        Args:
+            force_remove_count: If specified, remove exactly this many entries regardless of size limits
+        """
         try:
             if not self._cache:
                 return
@@ -135,8 +142,14 @@ class CacheManager(BaseManager):
                 key=lambda x: x[1]["timestamp"]
             )
             
-            # Remove oldest 10% of entries
-            num_to_remove = max(1, len(sorted_entries) // 10)
+            # Determine how many entries to remove
+            if force_remove_count is not None:
+                num_to_remove = min(force_remove_count, len(sorted_entries))
+            elif self._cleanup_config.max_size is not None:
+                num_to_remove = max(0, len(sorted_entries) - self._cleanup_config.max_size)
+            else:
+                # If no max_size set, remove oldest 10% as fallback
+                num_to_remove = max(1, len(sorted_entries) // 10)
             for key, _ in sorted_entries[:num_to_remove]:
                 await self.invalidate(key)
         except Exception as e:
@@ -155,7 +168,7 @@ class CacheManager(BaseManager):
             expired_keys = []
             
             # Only proceed if TTL is set
-            if not hasattr(self._cleanup_config, 'ttl_seconds') or self._cleanup_config.ttl_seconds <= 0:
+            if self._cleanup_config.ttl_seconds is None or self._cleanup_config.ttl_seconds <= 0:
                 return
                     
             for key, metadata in self._cache_metadata.items():
@@ -181,7 +194,7 @@ class CacheManager(BaseManager):
             force: If True, perform aggressive cleanup regardless of policy/interval
         """
         now = datetime.now()
-        if not force and (now - self._last_cleanup).seconds < self._cleanup_config.check_interval:
+        if not force and (now - self._last_cleanup).total_seconds() < self._cleanup_config.check_interval:
             return
                 
         self._last_cleanup = now
@@ -190,7 +203,8 @@ class CacheManager(BaseManager):
         
         # Size-based cleanup
         if force or self._cleanup_config.policy in [CleanupPolicy.MAX_SIZE, CleanupPolicy.HYBRID]:
-            if len(self._cache) > self._cleanup_config.max_size * 0.8: # Start cleaning at 80% fill
+            if (self._cleanup_config.max_size is not None and 
+                len(self._cache) > self._cleanup_config.max_size * 0.8): # Start cleaning at 80% fill
                 old_count = len(self._cache)
                 await self._cleanup_oldest()
                 cleaned_items += old_count - len(self._cache)
@@ -202,7 +216,7 @@ class CacheManager(BaseManager):
             cleaned_items += old_count - len(self._cache)
             
         # Report cleanup statistics
-        await self._event_queue.emit(
+        await self.event_bus.emit(
             ResourceEventTypes.METRIC_RECORDED.value,
             {
                 "metric": "cache_cleanup",
@@ -225,7 +239,8 @@ class CacheManager(BaseManager):
             status = "HEALTHY"
             description = "Cache operating normally"
             
-            if total_entries > self._cleanup_config.max_size * 0.8:
+            if (self._cleanup_config.max_size is not None and
+                total_entries >= self._cleanup_config.max_size * 0.8):
                 status = "DEGRADED"
                 description = "Cache near capacity"
                 

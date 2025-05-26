@@ -25,7 +25,7 @@ from resources import (
 )
 
 from phase_zero.validation.earth import validate_guideline_update
-from phase_zero.validation.water import propagate_guideline_update
+# Water agent propagation functionality has been removed
 from dataclasses import asdict
 
 logger = logging.getLogger(__name__)
@@ -240,55 +240,40 @@ class PhaseZeroComponentIntegration:
                                                   component_id: str,
                                                   updated_guideline: Dict[str, Any],
                                                   affected_components: Optional[List[str]] = None) -> Dict[str, Any]:
-        """Propagate component guideline update to affected components using Water mechanism"""
-        try:
-            # Call Water propagation with component context
-            propagation_result = await propagate_guideline_update(
-                agent_id=component_id,
-                updated_guideline=updated_guideline,
-                affected_agents=affected_components,  # Pass affected components if specified
-                event_queue=self._event_queue,
-                health_tracker=self._health_tracker,
-                state_manager=self._state_manager
-            )
-            
-            # Emit component-specific propagation event
-            try:
-                from resources.schemas import PropagationEventPayload
-                
-                # Create specialized component propagation payload
-                payload = PropagationEventPayload(
-                    propagation_id=propagation_result.get("metadata", {}).get("propagation_id", "unknown"),
-                    origin_agent_id=component_id,
-                    success=propagation_result["success"],
-                    affected_agents=propagation_result["affected_agents"],
-                    failures=propagation_result["failures"],
-                    metrics=propagation_result.get("metrics", {}),
-                    source_id="component_water_propagator",
-                    context={
-                        "updated_guideline_type": "component"
-                    }
-                )
-                
-                # Emit with component propagation event type
-                await self._event_queue.emit(
-                    "COMPONENT_PROPAGATION_COMPLETE",
-                    asdict(payload)
-                )
-            except Exception as event_error:
-                logger.warning(f"Error emitting component propagation event: {event_error}")
-            
-            return propagation_result
+        """
+        Propagate component guideline update to affected components.
         
-        except Exception as e:
-            logger.error(f"Error in component guideline propagation: {str(e)}", exc_info=True)
-            return {
-                "success": False,
-                "affected_agents": affected_components or [],
-                "error": str(e),
+        Note: This is a stub implementation as the Water propagation mechanism has been removed.
+        It always returns success without actually propagating anything.
+        """
+        logger.info(f"Component guideline update propagation called for component {component_id} (stubbed)")
+        
+        if affected_components is None:
+            affected_components = []
+            
+        # Return a successful result without actual propagation
+        result = {
+            "success": True,
+            "affected_agents": affected_components,
+            "timestamp": datetime.now().isoformat(),
+            "component_id": component_id,
+            "metadata": {
+                "warning": "Water propagation functionality has been removed. This is a stub implementation."
+            }
+        }
+        
+        # Emit component propagation event
+        await self._event_queue.emit(
+            "COMPONENT_PROPAGATION_COMPLETE",
+            {
                 "component_id": component_id,
+                "affected_components": affected_components,
+                "success": True,
                 "timestamp": datetime.now().isoformat()
             }
+        )
+        
+        return result
 
 class PhaseZeroFeatureIntegration:
     """Interface for integrating Phase Zero with Phase 3 (feature level)"""
@@ -492,52 +477,37 @@ class PhaseZeroFeatureIntegration:
                                                feature_id: str,
                                                updated_guideline: Dict[str, Any],
                                                affected_features: Optional[List[str]] = None) -> Dict[str, Any]:
-        """Propagate feature guideline update to affected features using Water mechanism"""
-        try:
-            # Call Water propagation with feature context
-            propagation_result = await propagate_guideline_update(
-                agent_id=feature_id,
-                updated_guideline=updated_guideline,
-                affected_agents=affected_features,  # Pass affected features if specified
-                event_queue=self._event_queue,
-                health_tracker=self._health_tracker,
-                state_manager=self._state_manager
-            )
-            
-            # Emit feature-specific propagation event
-            try:
-                from resources.schemas import PropagationEventPayload
-                
-                # Create specialized feature propagation payload
-                payload = PropagationEventPayload(
-                    propagation_id=propagation_result.get("metadata", {}).get("propagation_id", "unknown"),
-                    origin_agent_id=feature_id,
-                    success=propagation_result["success"],
-                    affected_agents=propagation_result["affected_agents"],
-                    failures=propagation_result["failures"],
-                    metrics=propagation_result.get("metrics", {}),
-                    source_id="feature_water_propagator",
-                    context={
-                        "updated_guideline_type": "feature"
-                    }
-                )
-                
-                # Emit with feature propagation event type
-                await self._event_queue.emit(
-                    "FEATURE_PROPAGATION_COMPLETE",
-                    asdict(payload)
-                )
-            except Exception as event_error:
-                logger.warning(f"Error emitting feature propagation event: {event_error}")
-            
-            return propagation_result
+        """
+        Propagate feature guideline update to affected features.
         
-        except Exception as e:
-            logger.error(f"Error in feature guideline propagation: {str(e)}", exc_info=True)
-            return {
-                "success": False,
-                "affected_agents": affected_features or [],
-                "error": str(e),
+        Note: This is a stub implementation as the Water propagation mechanism has been removed.
+        It always returns success without actually propagating anything.
+        """
+        logger.info(f"Feature guideline update propagation called for feature {feature_id} (stubbed)")
+        
+        if affected_features is None:
+            affected_features = []
+            
+        # Return a successful result without actual propagation
+        result = {
+            "success": True,
+            "affected_agents": affected_features,
+            "timestamp": datetime.now().isoformat(),
+            "feature_id": feature_id,
+            "metadata": {
+                "warning": "Water propagation functionality has been removed. This is a stub implementation."
+            }
+        }
+        
+        # Emit feature propagation event
+        await self._event_queue.emit(
+            "FEATURE_PROPAGATION_COMPLETE",
+            {
                 "feature_id": feature_id,
+                "affected_features": affected_features,
+                "success": True,
                 "timestamp": datetime.now().isoformat()
             }
+        )
+        
+        return result

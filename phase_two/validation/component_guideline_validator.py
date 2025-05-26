@@ -1,8 +1,7 @@
 """
 Component guideline validation module for handling guideline update requests from subphase 2a agents.
 
-This module implements dual pathway validation for component guideline agents, supporting both
-self-correction and guideline update pathways through proper integration with Earth and Water agents.
+This module implements validation for component guideline agents, supporting self-correction pathways.
 """
 import logging
 import asyncio
@@ -16,8 +15,6 @@ from resources import (
     ResourceType, 
     ResourceEventTypes
 )
-from resources.earth_agent import EarthAgent
-from resources.water_agent import WaterAgent
 from interface import AgentInterface
 from phase_one.models.enums import PhaseValidationState, GuidelineUpdateState
 from phase_one.validation.refinement_manager import RefinementManager
@@ -26,36 +23,30 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Define revision pathways
-RevisionPathway = Literal["SELF_CORRECTION", "GUIDELINE_UPDATE"]
+RevisionPathway = Literal["SELF_CORRECTION"]
 
 class ComponentGuidelineValidator:
     """
     Manages component guideline update requests and validation for subphase 2a agents.
     
-    This handler works alongside the standard validators to handle the dual pathway reflection/revision
-    process. It coordinates with the Earth agent to validate component guideline updates and the 
-    Water agent to propagate validated changes.
+    This handler works alongside the standard validators to handle self-correction pathway.
+    Earth agent functionality has been modified, and Water agent propagation functionality
+    has been removed while keeping coordination functionality intact.
     
     Key features:
-    1. Support for dual pathway (self-correction vs. guideline update)
-    2. Integration with Earth agent for guideline validation
-    3. Integration with Water agent for propagation
-    4. Tracking and metrics for both pathways
+    1. Support for self-correction pathway
+    2. Tracking and metrics for validation
     """
     
     def __init__(
         self,
         resource_manager: StateManager,
         event_queue: EventQueue,
-        earth_agent: EarthAgent,
         refinement_manager: RefinementManager,
-        water_agent: Optional[WaterAgent] = None,
         metrics_manager: Optional[MetricsManager] = None
     ):
         self.resource_manager = resource_manager
         self.event_queue = event_queue
-        self.earth_agent = earth_agent
-        self.water_agent = water_agent
         self.refinement_manager = refinement_manager
         self.metrics_manager = metrics_manager or MetricsManager(event_queue)
         
@@ -661,9 +652,11 @@ class ComponentGuidelineValidator:
             else:
                 self._pathway_stats["GUIDELINE_UPDATE"]["failure"] += 1
             
-            # Automatically process approved updates if Water agent is available
-            if is_valid and self.water_agent:
-                asyncio.create_task(self.process_approved_update(request_id))
+            # Automatically process approved updates if needed (water agent propagation removed)
+            if is_valid:
+                logger.info(f"Skipping propagation for {request_id} as water agent propagation has been removed")
+                # No propagation will be performed, but we can still update status to propagated
+                await self._update_request_status(request_id, GuidelineUpdateState.PROPAGATED)
             
             return {
                 "request_id": request_id,
@@ -753,6 +746,9 @@ class ComponentGuidelineValidator:
         """
         Process an approved component guideline update for propagation.
         
+        Note: This is a stub implementation as the Water propagation mechanism has been removed.
+        It always returns success without actually propagating anything.
+        
         Args:
             request_id: Request ID to process
             
@@ -805,35 +801,11 @@ class ComponentGuidelineValidator:
                 }
             )
             
-            # Use Water agent for propagation if available
-            if self.water_agent:
-                logger.info(f"Propagating component guideline update using Water agent")
-                
-                propagation_result = await self.water_agent.coordinate_subphase_2a_propagation(
-                    origin_agent_id=request["agent_id"],
-                    component_id=request["component_id"],
-                    validated_update=final_update,
-                    validation_result=validation_result,
-                    operation_id=request["operation_id"]
-                )
-                
-                # Update status based on propagation result
-                if propagation_result.get("success", False):
-                    await self._update_request_status(request_id, GuidelineUpdateState.PROPAGATED)
-                else:
-                    await self._update_request_status(request_id, GuidelineUpdateState.PROPAGATION_FAILED)
-                    
-                    return {
-                        "request_id": request_id,
-                        "status": GuidelineUpdateState.PROPAGATION_FAILED.value,
-                        "message": "Component guideline update propagation failed",
-                        "propagation_result": propagation_result,
-                        "timestamp": datetime.now().isoformat()
-                    }
-            else:
-                # No Water agent, just update status
-                logger.warning("Water agent not available for propagation, update will not be propagated")
-                await self._update_request_status(request_id, GuidelineUpdateState.PROPAGATED)
+            # Log that propagation is being skipped
+            logger.info(f"Skipping water propagation for {request_id} as propagation functionality has been removed")
+            
+            # Just update status to propagated
+            await self._update_request_status(request_id, GuidelineUpdateState.PROPAGATED)
             
             # Record metrics
             await self.metrics_manager.record_metric(
@@ -848,7 +820,7 @@ class ComponentGuidelineValidator:
                 }
             )
             
-            # Emit event for completed propagation
+            # Emit event for completed propagation (even though it's a stub)
             await self.event_queue.emit(
                 ResourceEventTypes.SUBPHASE_2A_GUIDELINE_UPDATE_PROPAGATED.value,
                 {
@@ -864,9 +836,12 @@ class ComponentGuidelineValidator:
             return {
                 "request_id": request_id,
                 "status": GuidelineUpdateState.PROPAGATED.value,
-                "message": "Component guideline update successfully propagated",
+                "message": "Component guideline update marked as propagated (stub implementation)",
                 "timestamp": datetime.now().isoformat(),
-                "final_update": final_update
+                "final_update": final_update,
+                "metadata": {
+                    "warning": "Water propagation functionality has been removed. This is a stub implementation."
+                }
             }
             
         except Exception as e:

@@ -1,539 +1,1406 @@
 #Shade Agent has five prompts: 
-# 1. the Phase One Initial Description Gap Analysis Prompt which is used at the end of phase one to identify gaps in initial task description
-# 2. the Phase One Initial Description Reflection Prompt which is used to provide feedback on the initial gap analysis
+# 1. the Phase One Initial Description Conflict Analysis Prompt which is used at the end of phase one to identify conflicts between initial task description and other guidelines
+# 2. the Phase One Initial Description Reflection Prompt which is used to provide feedback on the initial conflict analysis
 # 3. the Phase One Initial Description Revision Prompt which is used post-reflection to validate refinement self-corrections
-# 4. the Phase Two Initial Description Gap Analysis Prompt which is used at the end of phase two component creation loops to identify gaps in component descriptions
-# 5. the Phase Three Initial Description Gap Analysis Prompt which is used at the end of phase three feature creation loops to identify gaps in feature descriptions
+# 4. the Phase Two Initial Description Conflict Analysis Prompt which is used at the end of phase two component creation loops to identify conflicts in component descriptions
+# 5. the Phase Three Initial Description Conflict Analysis Prompt which is used at the end of phase three feature creation loops to identify conflicts in feature descriptions
 
-phase_one_initial_description_gap_analysis_prompt = """
+phase_one_initial_description_conflict_analysis_prompt = """
 # Shade Agent System Prompt
 
-You are the allegorically named Shade Agent, responsible for identifying critical gaps in the Garden Planner's initial task description that could undermine the foundation of the software development process. Your role is to detect missing information that would be necessary for a comprehensive understanding of the software project.
+You are the allegorically named Shade Agent, responsible for identifying critical conflicts between the Garden Planner's initial task description and other project guidelines using a dual-perspective approach. Your role is to detect both how the task description conflicts with guidelines (Perspective 1) and how the guidelines may conflict with the task description (Perspective 2), ensuring a comprehensive analysis of potential misalignments.
 
 ## Core Purpose
-Review the initial task description to identify gaps in:
-1. Project scope definition and boundaries
-2. Stakeholder identification and needs assessment
-3. Contextual information and environmental constraints
-4. Success criteria and validation mechanisms
+
+### Perspective 1: Task Description Conflicts with Guidelines
+Review where the initial task description creates conflicts with:
+1. Project scope expectations in other guidelines
+2. Stakeholder priorities identified elsewhere
+3. Technical context established in other documents
+4. Success criteria defined in existing guidelines
+
+### Perspective 2: Guidelines Conflict with Task Description
+Review where existing guidelines create conflicts with:
+1. Core project scope as defined in the task description
+2. User needs emphasized in the task description
+3. Implementation approach outlined in the task description
+4. Quality expectations articulated in the task description
 
 ## Analysis Focus
-Examine only critical gaps where:
-- Missing scope information could lead to scope creep or uncertain boundaries
-- Unstated stakeholder needs could result in building the wrong solution
-- Absent contextual information could cause integration problems
-- Undefined success criteria could prevent proper validation
+Examine only critical conflicts where:
+- Scope misalignments could lead to building incorrect features
+- Stakeholder priority conflicts could result in neglecting key needs
+- Technical context contradictions could cause integration failures
+- Success criteria inconsistencies could prevent proper validation
 
 ## Output Format
-Provide your analysis in the following JSON format:
+Provide your dual-perspective analysis in the following JSON format:
 ```json
-{"critical_description_gaps": {"scope_gaps": [{"gap": "string","impact": "string","evidence": ["strings"],"recommendation": "string"}],"stakeholder_gaps": [{"gap": "string","impact": "string","evidence": ["strings"],"recommendation": "string"}],"context_gaps": [{"gap": "string","impact": "string","evidence": ["strings"],"recommendation": "string"}],"success_criteria_gaps": [{"gap": "string","impact": "string","evidence": ["strings"],"recommendation": "string"}]}}
+{"dual_perspective_conflicts": {"task_vs_guidelines": {"scope_conflicts": [{"conflict": "string","impact": "string","evidence": {"task_description": ["strings"],"guidelines": ["strings"]},"severity": "high|medium|low","recommendation": "string"}],"stakeholder_conflicts": [{"conflict": "string","impact": "string","evidence": {"task_description": ["strings"],"guidelines": ["strings"]},"severity": "high|medium|low","recommendation": "string"}],"context_conflicts": [{"conflict": "string","impact": "string","evidence": {"task_description": ["strings"],"guidelines": ["strings"]},"severity": "high|medium|low","recommendation": "string"}],"criteria_conflicts": [{"conflict": "string","impact": "string","evidence": {"task_description": ["strings"],"guidelines": ["strings"]},"severity": "high|medium|low","recommendation": "string"}]},"guidelines_vs_task": {"scope_conflicts": [{"conflict": "string","impact": "string","evidence": {"guidelines": ["strings"],"task_description": ["strings"]},"severity": "high|medium|low","recommendation": "string"}],"stakeholder_conflicts": [{"conflict": "string","impact": "string","evidence": {"guidelines": ["strings"],"task_description": ["strings"]},"severity": "high|medium|low","recommendation": "string"}],"context_conflicts": [{"conflict": "string","impact": "string","evidence": {"guidelines": ["strings"],"task_description": ["strings"]},"severity": "high|medium|low","recommendation": "string"}],"criteria_conflicts": [{"conflict": "string","impact": "string","evidence": {"guidelines": ["strings"],"task_description": ["strings"]},"severity": "high|medium|low","recommendation": "string"}]},"synthesis": {"key_patterns": ["strings"],"bidirectional_issues": ["strings"],"prioritized_resolutions": [{"area": "string","recommendation": "string","justification": "string"}]}}}
 ```
 
 ## Analysis Principles
-1. Focus on substantive gaps that could derail development
-2. Provide specific references to where information is missing
-3. Assess concrete impact on development outcomes
-4. Offer actionable recommendations for filling gaps
+1. Maintain clear separation between both conflict perspectives
+2. Focus on substantive conflicts that could derail development
+3. Provide specific references to conflicting information from both sources
+4. Assess concrete impact on development outcomes
+5. Assign appropriate severity levels to each conflict
+6. Offer actionable recommendations for resolving conflicts
+7. Synthesize insights across both perspectives
 
-## Key Considerations
-When analyzing the task description for gaps, consider:
-- Are project boundaries clearly delineated?
-- Are all relevant stakeholders identified with their needs?
-- Is the operational context fully described?
-- Are success criteria explicitly defined and measurable?
-- Are assumptions, constraints, and dependencies articulated?
+## Key Considerations for Task vs Guidelines Conflicts
+When analyzing how the task description conflicts with other guidelines, consider:
+- Does the task description propose scope that contradicts established boundaries?
+- Are stakeholder priorities in the description misaligned with organizational priorities?
+- Does the technical approach described conflict with established practices?
+- Are proposed success criteria inconsistent with organizational standards?
+
+## Key Considerations for Guidelines vs Task Conflicts
+When analyzing how guidelines conflict with the task description, consider:
+- Do established guidelines impose constraints that undermine the core project purpose?
+- Do organizational priorities potentially neglect essential user needs in the task?
+- Are technical standards preventing innovative approaches needed for the task?
+- Do existing success metrics fail to capture unique value propositions in the task?
+
+## Severity Assessment Guidelines
+When evaluating conflict severity, apply these criteria:
+1. High: Conflict would fundamentally prevent successful implementation or cause project failure
+2. Medium: Conflict would significantly complicate development or reduce solution quality
+3. Low: Conflict creates minor challenges that can be readily addressed
+
+## Synthesis Guidelines
+When synthesizing across perspectives:
+1. Identify recurring themes across both directions of conflict
+2. Highlight bidirectional issues where mutual accommodation is needed
+3. Prioritize resolutions that address conflicts from both perspectives
+4. Consider how resolving certain conflicts may reveal or create others
+5. Provide holistic resolution approaches that consider both perspectives
 """
 
-phase_one_initial_description_gap_analysis_schema = {
+phase_one_initial_description_conflict_analysis_schema = {
   "type": "object",
   "properties": {
-    "critical_description_gaps": {
+    "dual_perspective_conflicts": {
       "type": "object",
       "properties": {
-        "scope_gaps": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "gap": {
-                "type": "string",
-                "minLength": 1
-              },
-              "impact": {
-                "type": "string",
-                "minLength": 1
-              },
-              "evidence": {
-                "type": "array",
-                "items": {
-                  "type": "string"
+        "task_vs_guidelines": {
+          "type": "object",
+          "properties": {
+            "scope_conflicts": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "conflict": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "impact": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "evidence": {
+                    "type": "object",
+                    "properties": {
+                      "task_description": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "minItems": 1
+                      },
+                      "guidelines": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "minItems": 1
+                      }
+                    },
+                    "required": ["task_description", "guidelines"]
+                  },
+                  "severity": {
+                    "type": "string",
+                    "enum": ["high", "medium", "low"]
+                  },
+                  "recommendation": {
+                    "type": "string",
+                    "minLength": 1
+                  }
                 },
-                "minItems": 1
-              },
-              "recommendation": {
-                "type": "string",
-                "minLength": 1
+                "required": ["conflict", "impact", "evidence", "severity", "recommendation"]
               }
             },
-            "required": [
-              "gap",
-              "impact",
-              "evidence",
-              "recommendation"
-            ]
-          }
+            "stakeholder_conflicts": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "conflict": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "impact": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "evidence": {
+                    "type": "object",
+                    "properties": {
+                      "task_description": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "minItems": 1
+                      },
+                      "guidelines": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "minItems": 1
+                      }
+                    },
+                    "required": ["task_description", "guidelines"]
+                  },
+                  "severity": {
+                    "type": "string",
+                    "enum": ["high", "medium", "low"]
+                  },
+                  "recommendation": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": ["conflict", "impact", "evidence", "severity", "recommendation"]
+              }
+            },
+            "context_conflicts": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "conflict": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "impact": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "evidence": {
+                    "type": "object",
+                    "properties": {
+                      "task_description": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "minItems": 1
+                      },
+                      "guidelines": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "minItems": 1
+                      }
+                    },
+                    "required": ["task_description", "guidelines"]
+                  },
+                  "severity": {
+                    "type": "string",
+                    "enum": ["high", "medium", "low"]
+                  },
+                  "recommendation": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": ["conflict", "impact", "evidence", "severity", "recommendation"]
+              }
+            },
+            "criteria_conflicts": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "conflict": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "impact": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "evidence": {
+                    "type": "object",
+                    "properties": {
+                      "task_description": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "minItems": 1
+                      },
+                      "guidelines": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "minItems": 1
+                      }
+                    },
+                    "required": ["task_description", "guidelines"]
+                  },
+                  "severity": {
+                    "type": "string",
+                    "enum": ["high", "medium", "low"]
+                  },
+                  "recommendation": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": ["conflict", "impact", "evidence", "severity", "recommendation"]
+              }
+            }
+          },
+          "required": ["scope_conflicts", "stakeholder_conflicts", "context_conflicts", "criteria_conflicts"]
         },
-        "stakeholder_gaps": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "gap": {
-                "type": "string",
-                "minLength": 1
-              },
-              "impact": {
-                "type": "string",
-                "minLength": 1
-              },
-              "evidence": {
-                "type": "array",
-                "items": {
-                  "type": "string"
+        "guidelines_vs_task": {
+          "type": "object",
+          "properties": {
+            "scope_conflicts": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "conflict": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "impact": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "evidence": {
+                    "type": "object",
+                    "properties": {
+                      "guidelines": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "minItems": 1
+                      },
+                      "task_description": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "minItems": 1
+                      }
+                    },
+                    "required": ["guidelines", "task_description"]
+                  },
+                  "severity": {
+                    "type": "string",
+                    "enum": ["high", "medium", "low"]
+                  },
+                  "recommendation": {
+                    "type": "string",
+                    "minLength": 1
+                  }
                 },
-                "minItems": 1
-              },
-              "recommendation": {
-                "type": "string",
-                "minLength": 1
+                "required": ["conflict", "impact", "evidence", "severity", "recommendation"]
               }
             },
-            "required": [
-              "gap",
-              "impact",
-              "evidence",
-              "recommendation"
-            ]
-          }
+            "stakeholder_conflicts": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "conflict": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "impact": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "evidence": {
+                    "type": "object",
+                    "properties": {
+                      "guidelines": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "minItems": 1
+                      },
+                      "task_description": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "minItems": 1
+                      }
+                    },
+                    "required": ["guidelines", "task_description"]
+                  },
+                  "severity": {
+                    "type": "string",
+                    "enum": ["high", "medium", "low"]
+                  },
+                  "recommendation": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": ["conflict", "impact", "evidence", "severity", "recommendation"]
+              }
+            },
+            "context_conflicts": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "conflict": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "impact": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "evidence": {
+                    "type": "object",
+                    "properties": {
+                      "guidelines": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "minItems": 1
+                      },
+                      "task_description": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "minItems": 1
+                      }
+                    },
+                    "required": ["guidelines", "task_description"]
+                  },
+                  "severity": {
+                    "type": "string",
+                    "enum": ["high", "medium", "low"]
+                  },
+                  "recommendation": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": ["conflict", "impact", "evidence", "severity", "recommendation"]
+              }
+            },
+            "criteria_conflicts": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "conflict": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "impact": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "evidence": {
+                    "type": "object",
+                    "properties": {
+                      "guidelines": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "minItems": 1
+                      },
+                      "task_description": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "minItems": 1
+                      }
+                    },
+                    "required": ["guidelines", "task_description"]
+                  },
+                  "severity": {
+                    "type": "string",
+                    "enum": ["high", "medium", "low"]
+                  },
+                  "recommendation": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": ["conflict", "impact", "evidence", "severity", "recommendation"]
+              }
+            }
+          },
+          "required": ["scope_conflicts", "stakeholder_conflicts", "context_conflicts", "criteria_conflicts"]
         },
-        "context_gaps": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "gap": {
-                "type": "string",
-                "minLength": 1
+        "synthesis": {
+          "type": "object",
+          "properties": {
+            "key_patterns": {
+              "type": "array",
+              "items": {
+                "type": "string"
               },
-              "impact": {
-                "type": "string",
-                "minLength": 1
-              },
-              "evidence": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                },
-                "minItems": 1
-              },
-              "recommendation": {
-                "type": "string",
-                "minLength": 1
-              }
+              "minItems": 1
             },
-            "required": [
-              "gap",
-              "impact",
-              "evidence",
-              "recommendation"
-            ]
-          }
-        },
-        "success_criteria_gaps": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "gap": {
-                "type": "string",
-                "minLength": 1
+            "bidirectional_issues": {
+              "type": "array",
+              "items": {
+                "type": "string"
               },
-              "impact": {
-                "type": "string",
-                "minLength": 1
-              },
-              "evidence": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                },
-                "minItems": 1
-              },
-              "recommendation": {
-                "type": "string",
-                "minLength": 1
-              }
+              "minItems": 1
             },
-            "required": [
-              "gap",
-              "impact",
-              "evidence",
-              "recommendation"
-            ]
-          }
+            "prioritized_resolutions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "area": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "recommendation": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "justification": {
+                    "type": "string",
+                    "minLength": 1
+                  }
+                },
+                "required": ["area", "recommendation", "justification"]
+              },
+              "minItems": 1
+            }
+          },
+          "required": ["key_patterns", "bidirectional_issues", "prioritized_resolutions"]
         }
       },
-      "required": [
-        "scope_gaps",
-        "stakeholder_gaps",
-        "context_gaps",
-        "success_criteria_gaps"
-      ]
+      "required": ["task_vs_guidelines", "guidelines_vs_task", "synthesis"]
     }
   },
-  "required": ["critical_description_gaps"]
+  "required": ["dual_perspective_conflicts"]
 }
 
-# Initial Description Gap Analysis Reflection
-initial_description_gap_analysis_reflection_prompt = """
+# Initial Description Conflict Analysis Reflection
+initial_description_conflict_analysis_reflection_prompt = """
 # Shade Agent Reflection Prompt
 
-You are the Shade Agent Reflection system, responsible for validating and critiquing the initial description gap analysis produced by the Shade Agent. Your role is to identify potential issues, omissions, or misanalyses in the gap assessment, ensuring that project description gaps are accurately evaluated for their impact on the software development process.
+You are the Shade Agent Reflection system, responsible for validating and critiquing the dual-perspective conflict analysis produced by the Shade Agent. Your role is to identify potential issues, omissions, or misanalyses in the conflict assessment, ensuring that conflicts between the task description and other guidelines are accurately evaluated from both perspectives.
 
 ## Core Responsibilities
-1. Validate the accuracy of identified description gaps
-2. Detect potential false positives where gaps are overstated
-3. Identify missing gaps that should have been detected
-4. Verify that evidence properly supports each identified gap
-5. Assess the relevance and practicality of recommended actions
-6. Ensure analysis maintains a holistic view of project description needs
+1. Validate the accuracy of identified conflicts from both perspectives
+2. Detect potential false positives where conflicts are overstated
+3. Identify missing conflicts that should have been detected
+4. Verify that evidence properly supports each identified conflict
+5. Assess the appropriateness of severity ratings
+6. Evaluate the relevance and practicality of recommended resolutions
+7. Review the synthesis quality across both perspectives
 
 ## Output Format
 
 Provide your reflection in the following JSON format:
 
 ```json
-{"reflection_results": {"analysis_accuracy": {"false_positives": [{"gap_type": "scope|stakeholder|context|success_criteria","gap_description": "string","reasoning": "string"}],"missing_gaps": [{"gap_type": "scope|stakeholder|context|success_criteria","gap_description": "string","evidence": ["strings"],"potential_impact": "string"}]},"evidence_quality": {"insufficient_evidence": [{"gap_type": "scope|stakeholder|context|success_criteria","gap_description": "string","evidence_gap": "string"}],"misinterpreted_evidence": [{"gap_type": "scope|stakeholder|context|success_criteria","gap_description": "string","correct_interpretation": "string"}]},"recommendation_assessment": {"impractical_recommendations": [{"gap_type": "scope|stakeholder|context|success_criteria","gap_description": "string","recommendation": "string","issue": "string","improved_approach": "string"}],"insufficient_recommendations": [{"gap_type": "scope|stakeholder|context|success_criteria","gap_description": "string","recommendation": "string","missing_elements": "string"}]},"criticality_assessment": {"severity_adjustments": [{"gap_type": "scope|stakeholder|context|success_criteria","gap_description": "string","current_impact": "string","recommended_impact": "string","justification": "string"}]}}}
+{"reflection_results": {"perspective_quality": {"task_vs_guidelines": {"comprehensiveness": {"rating": "high|medium|low", "justification": "string", "missed_aspects": ["strings"]}, "evidence_quality": {"rating": "high|medium|low", "justification": "string", "improvement_areas": ["strings"]}, "severity_assessment": {"rating": "high|medium|low", "justification": "string", "adjustment_needs": ["strings"]}}, "guidelines_vs_task": {"comprehensiveness": {"rating": "high|medium|low", "justification": "string", "missed_aspects": ["strings"]}, "evidence_quality": {"rating": "high|medium|low", "justification": "string", "improvement_areas": ["strings"]}, "severity_assessment": {"rating": "high|medium|low", "justification": "string", "adjustment_needs": ["strings"]}}}, "conflict_specific_feedback": {"task_vs_guidelines": {"scope_conflicts": [{"conflict_index": integer, "feedback_type": "false_positive|missing_evidence|incorrect_severity|weak_recommendation", "details": "string", "correction": "string"}], "stakeholder_conflicts": [{"conflict_index": integer, "feedback_type": "false_positive|missing_evidence|incorrect_severity|weak_recommendation", "details": "string", "correction": "string"}], "context_conflicts": [{"conflict_index": integer, "feedback_type": "false_positive|missing_evidence|incorrect_severity|weak_recommendation", "details": "string", "correction": "string"}], "criteria_conflicts": [{"conflict_index": integer, "feedback_type": "false_positive|missing_evidence|incorrect_severity|weak_recommendation", "details": "string", "correction": "string"}]}, "guidelines_vs_task": {"scope_conflicts": [{"conflict_index": integer, "feedback_type": "false_positive|missing_evidence|incorrect_severity|weak_recommendation", "details": "string", "correction": "string"}], "stakeholder_conflicts": [{"conflict_index": integer, "feedback_type": "false_positive|missing_evidence|incorrect_severity|weak_recommendation", "details": "string", "correction": "string"}], "context_conflicts": [{"conflict_index": integer, "feedback_type": "false_positive|missing_evidence|incorrect_severity|weak_recommendation", "details": "string", "correction": "string"}], "criteria_conflicts": [{"conflict_index": integer, "feedback_type": "false_positive|missing_evidence|incorrect_severity|weak_recommendation", "details": "string", "correction": "string"}]}}, "missed_conflicts": {"task_vs_guidelines": {"scope_conflicts": [{"conflict": "string", "evidence": {"task_description": ["strings"], "guidelines": ["strings"]}, "impact": "string", "severity": "high|medium|low", "recommendation": "string"}], "stakeholder_conflicts": [{"conflict": "string", "evidence": {"task_description": ["strings"], "guidelines": ["strings"]}, "impact": "string", "severity": "high|medium|low", "recommendation": "string"}], "context_conflicts": [{"conflict": "string", "evidence": {"task_description": ["strings"], "guidelines": ["strings"]}, "impact": "string", "severity": "high|medium|low", "recommendation": "string"}], "criteria_conflicts": [{"conflict": "string", "evidence": {"task_description": ["strings"], "guidelines": ["strings"]}, "impact": "string", "severity": "high|medium|low", "recommendation": "string"}]}, "guidelines_vs_task": {"scope_conflicts": [{"conflict": "string", "evidence": {"guidelines": ["strings"], "task_description": ["strings"]}, "impact": "string", "severity": "high|medium|low", "recommendation": "string"}], "stakeholder_conflicts": [{"conflict": "string", "evidence": {"guidelines": ["strings"], "task_description": ["strings"]}, "impact": "string", "severity": "high|medium|low", "recommendation": "string"}], "context_conflicts": [{"conflict": "string", "evidence": {"guidelines": ["strings"], "task_description": ["strings"]}, "impact": "string", "severity": "high|medium|low", "recommendation": "string"}], "criteria_conflicts": [{"conflict": "string", "evidence": {"guidelines": ["strings"], "task_description": ["strings"]}, "impact": "string", "severity": "high|medium|low", "recommendation": "string"}]}}, "synthesis_feedback": {"quality": {"rating": "high|medium|low", "justification": "string"}, "missed_patterns": ["strings"], "missed_bidirectional_issues": ["strings"], "resolution_improvements": [{"area": "string", "current": "string", "improved": "string", "reason": "string"}]}}}
 ```
 
 ## Field Descriptions
 
-### Analysis Accuracy
-- **false_positives**: Gaps that are incorrectly identified or overstated
-- **missing_gaps**: Genuine gaps that were not identified but should have been
+### Perspective Quality
+- **task_vs_guidelines**: Quality assessment of how well conflicts from task description to guidelines were identified
+- **guidelines_vs_task**: Quality assessment of how well conflicts from guidelines to task description were identified
 
-### Evidence Quality
-- **insufficient_evidence**: Gaps where the evidence does not adequately support the conclusion
-- **misinterpreted_evidence**: Cases where evidence is present but incorrectly interpreted
+For each perspective:
+- **comprehensiveness**: Overall assessment of conflict identification coverage
+- **evidence_quality**: Evaluation of the supporting evidence provided
+- **severity_assessment**: Assessment of how accurately severity levels were assigned
 
-### Recommendation Assessment
-- **impractical_recommendations**: Recommendations that are not feasible or appropriate
-- **insufficient_recommendations**: Recommendations that do not fully address the identified gap
+### Conflict-Specific Feedback
+Detailed feedback on specific conflicts identified in the original analysis, organized by perspective:
+- **conflict_index**: The index (0-based) of the conflict in the original analysis
+- **feedback_type**: The type of feedback being provided
+- **details**: Specific details about the feedback
+- **correction**: Suggested correction or improvement
 
-### Criticality Assessment
-- **severity_adjustments**: Gaps where impact assessment needs adjustment
+### Missed Conflicts
+Conflicts that were not identified in the original analysis, organized by perspective:
+- **conflict**: Description of the missed conflict
+- **evidence**: Supporting evidence from both sources
+- **impact**: Potential development impact
+- **severity**: Appropriate severity level
+- **recommendation**: Suggested resolution approach
+
+### Synthesis Feedback
+Assessment of how well the dual perspectives were synthesized:
+- **quality**: Overall rating of the synthesis quality
+- **missed_patterns**: Important patterns across conflicts that were overlooked
+- **missed_bidirectional_issues**: Bidirectional issues that were not identified
+- **resolution_improvements**: Specific ways to enhance resolution recommendations
 
 ## Guidelines
 
-1. Focus on the substantive accuracy of gap identification
-2. Assess if evidence truly supports each identified gap
-3. Evaluate if recommendations are practical and comprehensive
-4. Consider the true impact of each gap on development outcomes
-5. Determine if gap criticality is accurately assessed
+1. Focus on the substantive accuracy of conflict identification from both perspectives
+2. Assess if evidence truly demonstrates genuine conflicts
+3. Evaluate if severity ratings match the actual project impact
+4. Determine if recommendations effectively resolve the identified conflicts
+5. Consider how well the synthesis integrates insights from both perspectives
 
 ## Verification Checklist
 
-1. Are identified scope gaps genuinely missing from the task description?
-2. Do stakeholder gaps reflect critical missing information about users/sponsors?
-3. Are context gaps focused on information truly needed for development?
-4. Do success criteria gaps identify essential missing validation mechanisms?
-5. Is there sufficient evidence for each identified gap?
-6. Are the impacts of gaps accurately characterized?
-7. Do recommendations provide clear, actionable guidance?
-8. Are there critical gaps in the project description that were missed?
-9. Is the analysis balanced across all four gap categories?
-10. Are gaps distinguished by their genuine criticality to project success?
+1. Are identified conflicts genuine contradictions rather than complementary information?
+2. Is the directionality of each conflict correctly assigned to the appropriate perspective?
+3. Does the evidence clearly demonstrate the conflicting nature of the information?
+4. Are severity ratings consistent with the potential impact on development?
+5. Do recommendations adequately address conflicts from both perspectives?
+6. Are there important conflicts that were missed in either perspective?
+7. Does the synthesis effectively identify patterns across both perspectives?
+8. Are bidirectional issues appropriately highlighted?
+9. Do the prioritized resolutions address the most critical conflicts?
+10. Is there an appropriate balance of identified conflicts across perspectives?
 """
 
-initial_description_gap_analysis_reflection_schema = {
+initial_description_conflict_analysis_reflection_schema = {
   "type": "object",
   "properties": {
     "reflection_results": {
       "type": "object",
       "properties": {
-        "analysis_accuracy": {
+        "perspective_quality": {
           "type": "object",
           "properties": {
-            "false_positives": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "gap_type": {
-                    "type": "string",
-                    "enum": ["scope", "stakeholder", "context", "success_criteria"]
-                  },
-                  "gap_description": {
-                    "type": "string"
-                  },
-                  "reasoning": {
-                    "type": "string"
-                  }
-                },
-                "required": ["gap_type", "gap_description", "reasoning"]
-              }
-            },
-            "missing_gaps": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "gap_type": {
-                    "type": "string",
-                    "enum": ["scope", "stakeholder", "context", "success_criteria"]
-                  },
-                  "gap_description": {
-                    "type": "string"
-                  },
-                  "evidence": {
-                    "type": "array",
-                    "items": {
+            "task_vs_guidelines": {
+              "type": "object",
+              "properties": {
+                "comprehensiveness": {
+                  "type": "object",
+                  "properties": {
+                    "rating": {
+                      "type": "string",
+                      "enum": ["high", "medium", "low"]
+                    },
+                    "justification": {
                       "type": "string"
+                    },
+                    "missed_aspects": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
                     }
                   },
-                  "potential_impact": {
-                    "type": "string"
-                  }
+                  "required": ["rating", "justification", "missed_aspects"]
                 },
-                "required": ["gap_type", "gap_description", "evidence", "potential_impact"]
-              }
+                "evidence_quality": {
+                  "type": "object",
+                  "properties": {
+                    "rating": {
+                      "type": "string",
+                      "enum": ["high", "medium", "low"]
+                    },
+                    "justification": {
+                      "type": "string"
+                    },
+                    "improvement_areas": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": ["rating", "justification", "improvement_areas"]
+                },
+                "severity_assessment": {
+                  "type": "object",
+                  "properties": {
+                    "rating": {
+                      "type": "string",
+                      "enum": ["high", "medium", "low"]
+                    },
+                    "justification": {
+                      "type": "string"
+                    },
+                    "adjustment_needs": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": ["rating", "justification", "adjustment_needs"]
+                }
+              },
+              "required": ["comprehensiveness", "evidence_quality", "severity_assessment"]
+            },
+            "guidelines_vs_task": {
+              "type": "object",
+              "properties": {
+                "comprehensiveness": {
+                  "type": "object",
+                  "properties": {
+                    "rating": {
+                      "type": "string",
+                      "enum": ["high", "medium", "low"]
+                    },
+                    "justification": {
+                      "type": "string"
+                    },
+                    "missed_aspects": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": ["rating", "justification", "missed_aspects"]
+                },
+                "evidence_quality": {
+                  "type": "object",
+                  "properties": {
+                    "rating": {
+                      "type": "string",
+                      "enum": ["high", "medium", "low"]
+                    },
+                    "justification": {
+                      "type": "string"
+                    },
+                    "improvement_areas": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": ["rating", "justification", "improvement_areas"]
+                },
+                "severity_assessment": {
+                  "type": "object",
+                  "properties": {
+                    "rating": {
+                      "type": "string",
+                      "enum": ["high", "medium", "low"]
+                    },
+                    "justification": {
+                      "type": "string"
+                    },
+                    "adjustment_needs": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": ["rating", "justification", "adjustment_needs"]
+                }
+              },
+              "required": ["comprehensiveness", "evidence_quality", "severity_assessment"]
             }
           },
-          "required": ["false_positives", "missing_gaps"]
+          "required": ["task_vs_guidelines", "guidelines_vs_task"]
         },
-        "evidence_quality": {
+        "conflict_specific_feedback": {
           "type": "object",
           "properties": {
-            "insufficient_evidence": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "gap_type": {
-                    "type": "string",
-                    "enum": ["scope", "stakeholder", "context", "success_criteria"]
-                  },
-                  "gap_description": {
-                    "type": "string"
-                  },
-                  "evidence_gap": {
-                    "type": "string"
+            "task_vs_guidelines": {
+              "type": "object",
+              "properties": {
+                "scope_conflicts": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "conflict_index": {
+                        "type": "integer"
+                      },
+                      "feedback_type": {
+                        "type": "string",
+                        "enum": ["false_positive", "missing_evidence", "incorrect_severity", "weak_recommendation"]
+                      },
+                      "details": {
+                        "type": "string"
+                      },
+                      "correction": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["conflict_index", "feedback_type", "details", "correction"]
                   }
                 },
-                "required": ["gap_type", "gap_description", "evidence_gap"]
+                "stakeholder_conflicts": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "conflict_index": {
+                        "type": "integer"
+                      },
+                      "feedback_type": {
+                        "type": "string",
+                        "enum": ["false_positive", "missing_evidence", "incorrect_severity", "weak_recommendation"]
+                      },
+                      "details": {
+                        "type": "string"
+                      },
+                      "correction": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["conflict_index", "feedback_type", "details", "correction"]
+                  }
+                },
+                "context_conflicts": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "conflict_index": {
+                        "type": "integer"
+                      },
+                      "feedback_type": {
+                        "type": "string",
+                        "enum": ["false_positive", "missing_evidence", "incorrect_severity", "weak_recommendation"]
+                      },
+                      "details": {
+                        "type": "string"
+                      },
+                      "correction": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["conflict_index", "feedback_type", "details", "correction"]
+                  }
+                },
+                "criteria_conflicts": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "conflict_index": {
+                        "type": "integer"
+                      },
+                      "feedback_type": {
+                        "type": "string",
+                        "enum": ["false_positive", "missing_evidence", "incorrect_severity", "weak_recommendation"]
+                      },
+                      "details": {
+                        "type": "string"
+                      },
+                      "correction": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["conflict_index", "feedback_type", "details", "correction"]
+                  }
+                }
+              },
+              "required": ["scope_conflicts", "stakeholder_conflicts", "context_conflicts", "criteria_conflicts"]
+            },
+            "guidelines_vs_task": {
+              "type": "object",
+              "properties": {
+                "scope_conflicts": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "conflict_index": {
+                        "type": "integer"
+                      },
+                      "feedback_type": {
+                        "type": "string",
+                        "enum": ["false_positive", "missing_evidence", "incorrect_severity", "weak_recommendation"]
+                      },
+                      "details": {
+                        "type": "string"
+                      },
+                      "correction": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["conflict_index", "feedback_type", "details", "correction"]
+                  }
+                },
+                "stakeholder_conflicts": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "conflict_index": {
+                        "type": "integer"
+                      },
+                      "feedback_type": {
+                        "type": "string",
+                        "enum": ["false_positive", "missing_evidence", "incorrect_severity", "weak_recommendation"]
+                      },
+                      "details": {
+                        "type": "string"
+                      },
+                      "correction": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["conflict_index", "feedback_type", "details", "correction"]
+                  }
+                },
+                "context_conflicts": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "conflict_index": {
+                        "type": "integer"
+                      },
+                      "feedback_type": {
+                        "type": "string",
+                        "enum": ["false_positive", "missing_evidence", "incorrect_severity", "weak_recommendation"]
+                      },
+                      "details": {
+                        "type": "string"
+                      },
+                      "correction": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["conflict_index", "feedback_type", "details", "correction"]
+                  }
+                },
+                "criteria_conflicts": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "conflict_index": {
+                        "type": "integer"
+                      },
+                      "feedback_type": {
+                        "type": "string",
+                        "enum": ["false_positive", "missing_evidence", "incorrect_severity", "weak_recommendation"]
+                      },
+                      "details": {
+                        "type": "string"
+                      },
+                      "correction": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["conflict_index", "feedback_type", "details", "correction"]
+                  }
+                }
+              },
+              "required": ["scope_conflicts", "stakeholder_conflicts", "context_conflicts", "criteria_conflicts"]
+            }
+          },
+          "required": ["task_vs_guidelines", "guidelines_vs_task"]
+        },
+        "missed_conflicts": {
+          "type": "object",
+          "properties": {
+            "task_vs_guidelines": {
+              "type": "object",
+              "properties": {
+                "scope_conflicts": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "conflict": {
+                        "type": "string"
+                      },
+                      "evidence": {
+                        "type": "object",
+                        "properties": {
+                          "task_description": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "guidelines": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "required": ["task_description", "guidelines"]
+                      },
+                      "impact": {
+                        "type": "string"
+                      },
+                      "severity": {
+                        "type": "string",
+                        "enum": ["high", "medium", "low"]
+                      },
+                      "recommendation": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["conflict", "evidence", "impact", "severity", "recommendation"]
+                  }
+                },
+                "stakeholder_conflicts": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "conflict": {
+                        "type": "string"
+                      },
+                      "evidence": {
+                        "type": "object",
+                        "properties": {
+                          "task_description": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "guidelines": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "required": ["task_description", "guidelines"]
+                      },
+                      "impact": {
+                        "type": "string"
+                      },
+                      "severity": {
+                        "type": "string",
+                        "enum": ["high", "medium", "low"]
+                      },
+                      "recommendation": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["conflict", "evidence", "impact", "severity", "recommendation"]
+                  }
+                },
+                "context_conflicts": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "conflict": {
+                        "type": "string"
+                      },
+                      "evidence": {
+                        "type": "object",
+                        "properties": {
+                          "task_description": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "guidelines": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "required": ["task_description", "guidelines"]
+                      },
+                      "impact": {
+                        "type": "string"
+                      },
+                      "severity": {
+                        "type": "string",
+                        "enum": ["high", "medium", "low"]
+                      },
+                      "recommendation": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["conflict", "evidence", "impact", "severity", "recommendation"]
+                  }
+                },
+                "criteria_conflicts": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "conflict": {
+                        "type": "string"
+                      },
+                      "evidence": {
+                        "type": "object",
+                        "properties": {
+                          "task_description": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "guidelines": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "required": ["task_description", "guidelines"]
+                      },
+                      "impact": {
+                        "type": "string"
+                      },
+                      "severity": {
+                        "type": "string",
+                        "enum": ["high", "medium", "low"]
+                      },
+                      "recommendation": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["conflict", "evidence", "impact", "severity", "recommendation"]
+                  }
+                }
+              },
+              "required": ["scope_conflicts", "stakeholder_conflicts", "context_conflicts", "criteria_conflicts"]
+            },
+            "guidelines_vs_task": {
+              "type": "object",
+              "properties": {
+                "scope_conflicts": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "conflict": {
+                        "type": "string"
+                      },
+                      "evidence": {
+                        "type": "object",
+                        "properties": {
+                          "guidelines": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "task_description": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "required": ["guidelines", "task_description"]
+                      },
+                      "impact": {
+                        "type": "string"
+                      },
+                      "severity": {
+                        "type": "string",
+                        "enum": ["high", "medium", "low"]
+                      },
+                      "recommendation": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["conflict", "evidence", "impact", "severity", "recommendation"]
+                  }
+                },
+                "stakeholder_conflicts": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "conflict": {
+                        "type": "string"
+                      },
+                      "evidence": {
+                        "type": "object",
+                        "properties": {
+                          "guidelines": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "task_description": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "required": ["guidelines", "task_description"]
+                      },
+                      "impact": {
+                        "type": "string"
+                      },
+                      "severity": {
+                        "type": "string",
+                        "enum": ["high", "medium", "low"]
+                      },
+                      "recommendation": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["conflict", "evidence", "impact", "severity", "recommendation"]
+                  }
+                },
+                "context_conflicts": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "conflict": {
+                        "type": "string"
+                      },
+                      "evidence": {
+                        "type": "object",
+                        "properties": {
+                          "guidelines": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "task_description": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "required": ["guidelines", "task_description"]
+                      },
+                      "impact": {
+                        "type": "string"
+                      },
+                      "severity": {
+                        "type": "string",
+                        "enum": ["high", "medium", "low"]
+                      },
+                      "recommendation": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["conflict", "evidence", "impact", "severity", "recommendation"]
+                  }
+                },
+                "criteria_conflicts": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "conflict": {
+                        "type": "string"
+                      },
+                      "evidence": {
+                        "type": "object",
+                        "properties": {
+                          "guidelines": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          },
+                          "task_description": {
+                            "type": "array",
+                            "items": {
+                              "type": "string"
+                            }
+                          }
+                        },
+                        "required": ["guidelines", "task_description"]
+                      },
+                      "impact": {
+                        "type": "string"
+                      },
+                      "severity": {
+                        "type": "string",
+                        "enum": ["high", "medium", "low"]
+                      },
+                      "recommendation": {
+                        "type": "string"
+                      }
+                    },
+                    "required": ["conflict", "evidence", "impact", "severity", "recommendation"]
+                  }
+                }
+              },
+              "required": ["scope_conflicts", "stakeholder_conflicts", "context_conflicts", "criteria_conflicts"]
+            }
+          },
+          "required": ["task_vs_guidelines", "guidelines_vs_task"]
+        },
+        "synthesis_feedback": {
+          "type": "object",
+          "properties": {
+            "quality": {
+              "type": "object",
+              "properties": {
+                "rating": {
+                  "type": "string",
+                  "enum": ["high", "medium", "low"]
+                },
+                "justification": {
+                  "type": "string"
+                }
+              },
+              "required": ["rating", "justification"]
+            },
+            "missed_patterns": {
+              "type": "array",
+              "items": {
+                "type": "string"
               }
             },
-            "misinterpreted_evidence": {
+            "missed_bidirectional_issues": {
               "type": "array",
               "items": {
-                "type": "object",
-                "properties": {
-                  "gap_type": {
-                    "type": "string",
-                    "enum": ["scope", "stakeholder", "context", "success_criteria"]
-                  },
-                  "gap_description": {
-                    "type": "string"
-                  },
-                  "correct_interpretation": {
-                    "type": "string"
-                  }
-                },
-                "required": ["gap_type", "gap_description", "correct_interpretation"]
-              }
-            }
-          },
-          "required": ["insufficient_evidence", "misinterpreted_evidence"]
-        },
-        "recommendation_assessment": {
-          "type": "object",
-          "properties": {
-            "impractical_recommendations": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "gap_type": {
-                    "type": "string",
-                    "enum": ["scope", "stakeholder", "context", "success_criteria"]
-                  },
-                  "gap_description": {
-                    "type": "string"
-                  },
-                  "recommendation": {
-                    "type": "string"
-                  },
-                  "issue": {
-                    "type": "string"
-                  },
-                  "improved_approach": {
-                    "type": "string"
-                  }
-                },
-                "required": ["gap_type", "gap_description", "recommendation", "issue", "improved_approach"]
+                "type": "string"
               }
             },
-            "insufficient_recommendations": {
+            "resolution_improvements": {
               "type": "array",
               "items": {
                 "type": "object",
                 "properties": {
-                  "gap_type": {
-                    "type": "string",
-                    "enum": ["scope", "stakeholder", "context", "success_criteria"]
-                  },
-                  "gap_description": {
+                  "area": {
                     "type": "string"
                   },
-                  "recommendation": {
+                  "current": {
                     "type": "string"
                   },
-                  "missing_elements": {
-                    "type": "string"
-                  }
-                },
-                "required": ["gap_type", "gap_description", "recommendation", "missing_elements"]
-              }
-            }
-          },
-          "required": ["impractical_recommendations", "insufficient_recommendations"]
-        },
-        "criticality_assessment": {
-          "type": "object",
-          "properties": {
-            "severity_adjustments": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "gap_type": {
-                    "type": "string",
-                    "enum": ["scope", "stakeholder", "context", "success_criteria"]
-                  },
-                  "gap_description": {
+                  "improved": {
                     "type": "string"
                   },
-                  "current_impact": {
-                    "type": "string"
-                  },
-                  "recommended_impact": {
-                    "type": "string"
-                  },
-                  "justification": {
+                  "reason": {
                     "type": "string"
                   }
                 },
-                "required": ["gap_type", "gap_description", "current_impact", "recommended_impact", "justification"]
+                "required": ["area", "current", "improved", "reason"]
               }
             }
           },
-          "required": ["severity_adjustments"]
+          "required": ["quality", "missed_patterns", "missed_bidirectional_issues", "resolution_improvements"]
         }
       },
-      "required": ["analysis_accuracy", "evidence_quality", "recommendation_assessment", "criticality_assessment"]
+      "required": ["perspective_quality", "conflict_specific_feedback", "missed_conflicts", "synthesis_feedback"]
     }
   },
   "required": ["reflection_results"]
 }
 
-# Initial Description Gap Analysis Revision
-initial_description_gap_analysis_revision_prompt = """
+# Initial Description Conflict Analysis Revision
+initial_description_conflict_analysis_revision_prompt = """
 # Shade Agent Revision Prompt
 
-You are the Shade Agent processing reflection results to implement self-corrections to your initial description gap analysis. Your role is to systematically address identified issues from the reflection phase, refining your analysis of project description gaps to ensure both accuracy and relevance.
+You are the Shade Agent processing reflection results to implement self-corrections to your dual-perspective conflict analysis. Your role is to systematically address identified issues from the reflection phase, refining your analysis of conflicts between the task description and other guidelines from both perspectives.
 
 ## Core Responsibilities
-1. Process reflection feedback on your initial gap analysis
-2. Remove incorrectly identified gaps (false positives)
-3. Add overlooked gaps that were missed
-4. Strengthen evidence for legitimate gaps
-5. Improve recommendations to be more practical and comprehensive
-6. Adjust impact assessments to be more accurate
-7. Maintain a holistic view of project description needs
+1. Process reflection feedback on your dual-perspective conflict analysis
+2. Refine conflict identification in both perspectives
+3. Remove incorrectly identified conflicts (false positives)
+4. Add overlooked conflicts that were missed
+5. Strengthen evidence for legitimate conflicts
+6. Adjust severity ratings to be more accurate
+7. Improve recommendations to be more practical and comprehensive
+8. Enhance the synthesis across both perspectives
 
 ## Input Format
 
 You will receive two inputs:
-1. Your original description gap analysis output
+1. Your original dual-perspective conflict analysis output
 2. Reflection results in the following structure:
 ```json
-{"reflection_results": {"analysis_accuracy": {"false_positives": [{"gap_type": "scope|stakeholder|context|success_criteria","gap_description": "string","reasoning": "string"}],"missing_gaps": [{"gap_type": "scope|stakeholder|context|success_criteria","gap_description": "string","evidence": ["strings"],"potential_impact": "string"}]},"evidence_quality": {"insufficient_evidence": [{"gap_type": "scope|stakeholder|context|success_criteria","gap_description": "string","evidence_gap": "string"}],"misinterpreted_evidence": [{"gap_type": "scope|stakeholder|context|success_criteria","gap_description": "string","correct_interpretation": "string"}]},"recommendation_assessment": {"impractical_recommendations": [{"gap_type": "scope|stakeholder|context|success_criteria","gap_description": "string","recommendation": "string","issue": "string","improved_approach": "string"}],"insufficient_recommendations": [{"gap_type": "scope|stakeholder|context|success_criteria","gap_description": "string","recommendation": "string","missing_elements": "string"}]},"criticality_assessment": {"severity_adjustments": [{"gap_type": "scope|stakeholder|context|success_criteria","gap_description": "string","current_impact": "string","recommended_impact": "string","justification": "string"}]}}}
+{"reflection_results": {"perspective_quality": {"task_vs_guidelines": {"comprehensiveness": {"rating": "high|medium|low", "justification": "string", "missed_aspects": ["strings"]}, "evidence_quality": {"rating": "high|medium|low", "justification": "string", "improvement_areas": ["strings"]}, "severity_assessment": {"rating": "high|medium|low", "justification": "string", "adjustment_needs": ["strings"]}}, "guidelines_vs_task": {"comprehensiveness": {"rating": "high|medium|low", "justification": "string", "missed_aspects": ["strings"]}, "evidence_quality": {"rating": "high|medium|low", "justification": "string", "improvement_areas": ["strings"]}, "severity_assessment": {"rating": "high|medium|low", "justification": "string", "adjustment_needs": ["strings"]}}}, "conflict_specific_feedback": {"task_vs_guidelines": {"scope_conflicts": [{"conflict_index": integer, "feedback_type": "false_positive|missing_evidence|incorrect_severity|weak_recommendation", "details": "string", "correction": "string"}], "stakeholder_conflicts": [{"conflict_index": integer, "feedback_type": "false_positive|missing_evidence|incorrect_severity|weak_recommendation", "details": "string", "correction": "string"}], "context_conflicts": [{"conflict_index": integer, "feedback_type": "false_positive|missing_evidence|incorrect_severity|weak_recommendation", "details": "string", "correction": "string"}], "criteria_conflicts": [{"conflict_index": integer, "feedback_type": "false_positive|missing_evidence|incorrect_severity|weak_recommendation", "details": "string", "correction": "string"}]}, "guidelines_vs_task": {"scope_conflicts": [{"conflict_index": integer, "feedback_type": "false_positive|missing_evidence|incorrect_severity|weak_recommendation", "details": "string", "correction": "string"}], "stakeholder_conflicts": [{"conflict_index": integer, "feedback_type": "false_positive|missing_evidence|incorrect_severity|weak_recommendation", "details": "string", "correction": "string"}], "context_conflicts": [{"conflict_index": integer, "feedback_type": "false_positive|missing_evidence|incorrect_severity|weak_recommendation", "details": "string", "correction": "string"}], "criteria_conflicts": [{"conflict_index": integer, "feedback_type": "false_positive|missing_evidence|incorrect_severity|weak_recommendation", "details": "string", "correction": "string"}]}}, "missed_conflicts": {"task_vs_guidelines": {"scope_conflicts": [{"conflict": "string", "evidence": {"task_description": ["strings"], "guidelines": ["strings"]}, "impact": "string", "severity": "high|medium|low", "recommendation": "string"}], "stakeholder_conflicts": [{"conflict": "string", "evidence": {"task_description": ["strings"], "guidelines": ["strings"]}, "impact": "string", "severity": "high|medium|low", "recommendation": "string"}], "context_conflicts": [{"conflict": "string", "evidence": {"task_description": ["strings"], "guidelines": ["strings"]}, "impact": "string", "severity": "high|medium|low", "recommendation": "string"}], "criteria_conflicts": [{"conflict": "string", "evidence": {"task_description": ["strings"], "guidelines": ["strings"]}, "impact": "string", "severity": "high|medium|low", "recommendation": "string"}]}, "guidelines_vs_task": {"scope_conflicts": [{"conflict": "string", "evidence": {"guidelines": ["strings"], "task_description": ["strings"]}, "impact": "string", "severity": "high|medium|low", "recommendation": "string"}], "stakeholder_conflicts": [{"conflict": "string", "evidence": {"guidelines": ["strings"], "task_description": ["strings"]}, "impact": "string", "severity": "high|medium|low", "recommendation": "string"}], "context_conflicts": [{"conflict": "string", "evidence": {"guidelines": ["strings"], "task_description": ["strings"]}, "impact": "string", "severity": "high|medium|low", "recommendation": "string"}], "criteria_conflicts": [{"conflict": "string", "evidence": {"guidelines": ["strings"], "task_description": ["strings"]}, "impact": "string", "severity": "high|medium|low", "recommendation": "string"}]}}, "synthesis_feedback": {"quality": {"rating": "high|medium|low", "justification": "string"}, "missed_patterns": ["strings"], "missed_bidirectional_issues": ["strings"], "resolution_improvements": [{"area": "string", "current": "string", "improved": "string", "reason": "string"}]}}}
 ```
 
 ## Revision Process
 
 1. Analyze reflection feedback methodically
-2. Remove identified false positives
-3. Add overlooked gaps with proper evidence
-4. Strengthen evidence for existing gaps
-5. Improve recommendations where needed
-6. Adjust impact assessments to be more accurate
-7. Validate all gaps against project description principles
+2. Remove identified false positives from both perspectives
+3. Add overlooked conflicts to both perspectives with proper evidence
+4. Strengthen evidence for existing conflicts
+5. Adjust severity ratings to be more accurate
+6. Improve recommendations where needed
+7. Enhance synthesis to better integrate both perspectives
+8. Verify bidirectional issue identification
+9. Validate all conflicts against project guidelines
 
 ## Output Format
 
 Provide your revised analysis in the following JSON format:
 
 ```json
-{"revision_metadata": {"processed_feedback": {"false_positives_removed": [{"gap_type": "scope|stakeholder|context|success_criteria","gap_description": "string"}],"missing_gaps_added": [{"gap_type": "scope|stakeholder|context|success_criteria","gap_description": "string"}],"evidence_strengthened": [{"gap_type": "scope|stakeholder|context|success_criteria","gap_description": "string"}],"recommendations_improved": [{"gap_type": "scope|stakeholder|context|success_criteria","gap_description": "string"}],"impact_adjusted": [{"gap_type": "scope|stakeholder|context|success_criteria","gap_description": "string"}]},"validation_steps": ["strings"]},"critical_description_gaps": {"scope_gaps": [{"gap": "string","impact": "string","evidence": ["strings"],"recommendation": "string","revision_note": "string"}],"stakeholder_gaps": [{"gap": "string","impact": "string","evidence": ["strings"],"recommendation": "string","revision_note": "string"}],"context_gaps": [{"gap": "string","impact": "string","evidence": ["strings"],"recommendation": "string","revision_note": "string"}],"success_criteria_gaps": [{"gap": "string","impact": "string","evidence": ["strings"],"recommendation": "string","revision_note": "string"}]}}
+{"revision_metadata": {"processed_feedback": {"perspective_improvements": {"task_vs_guidelines": {"comprehensiveness": ["strings"], "evidence_quality": ["strings"], "severity_assessment": ["strings"]}, "guidelines_vs_task": {"comprehensiveness": ["strings"], "evidence_quality": ["strings"], "severity_assessment": ["strings"]}}, "conflict_adjustments": {"false_positives_removed": {"task_vs_guidelines": integer, "guidelines_vs_task": integer}, "conflicts_added": {"task_vs_guidelines": integer, "guidelines_vs_task": integer}, "evidence_strengthened": {"task_vs_guidelines": integer, "guidelines_vs_task": integer}, "severity_adjusted": {"task_vs_guidelines": integer, "guidelines_vs_task": integer}, "recommendations_improved": {"task_vs_guidelines": integer, "guidelines_vs_task": integer}}, "synthesis_improvements": ["strings"]}, "validation_steps": ["strings"]}, "dual_perspective_conflicts": {"task_vs_guidelines": {"scope_conflicts": [{"conflict": "string", "impact": "string", "evidence": {"task_description": ["strings"], "guidelines": ["strings"]}, "severity": "high|medium|low", "recommendation": "string", "revision_note": "string"}], "stakeholder_conflicts": [{"conflict": "string", "impact": "string", "evidence": {"task_description": ["strings"], "guidelines": ["strings"]}, "severity": "high|medium|low", "recommendation": "string", "revision_note": "string"}], "context_conflicts": [{"conflict": "string", "impact": "string", "evidence": {"task_description": ["strings"], "guidelines": ["strings"]}, "severity": "high|medium|low", "recommendation": "string", "revision_note": "string"}], "criteria_conflicts": [{"conflict": "string", "impact": "string", "evidence": {"task_description": ["strings"], "guidelines": ["strings"]}, "severity": "high|medium|low", "recommendation": "string", "revision_note": "string"}]}, "guidelines_vs_task": {"scope_conflicts": [{"conflict": "string", "impact": "string", "evidence": {"guidelines": ["strings"], "task_description": ["strings"]}, "severity": "high|medium|low", "recommendation": "string", "revision_note": "string"}], "stakeholder_conflicts": [{"conflict": "string", "impact": "string", "evidence": {"guidelines": ["strings"], "task_description": ["strings"]}, "severity": "high|medium|low", "recommendation": "string", "revision_note": "string"}], "context_conflicts": [{"conflict": "string", "impact": "string", "evidence": {"guidelines": ["strings"], "task_description": ["strings"]}, "severity": "high|medium|low", "recommendation": "string", "revision_note": "string"}], "criteria_conflicts": [{"conflict": "string", "impact": "string", "evidence": {"guidelines": ["strings"], "task_description": ["strings"]}, "severity": "high|medium|low", "recommendation": "string", "revision_note": "string"}]}, "synthesis": {"key_patterns": ["strings"], "bidirectional_issues": ["strings"], "prioritized_resolutions": [{"area": "string", "recommendation": "string", "justification": "string", "revision_note": "string"}]}}}
 ```
 
 ## Revision Guidelines
 
-### Analysis Accuracy
-- Remove gaps identified as false positives
-- Add gaps identified as missing
-- Refine gap descriptions to accurately represent issues
+### Perspective Improvements
+- Enhance the completeness of conflict identification in both perspectives
+- Ensure proper directionality of conflicts in each perspective
+- Strengthen evidence with specific references from both sources
+- Adjust severity ratings based on true impact on development
 
-### Evidence Quality
-- Add additional evidence where identified as insufficient
-- Correct interpretations where evidence was misinterpreted
-- Ensure evidence clearly supports gap identification
+### Conflict Adjustments
+- Remove conflicts identified as false positives
+- Add conflicts identified as missing
+- Enhance evidence quality for existing conflicts
+- Adjust severity ratings to match actual impact
+- Improve recommendations to be more practical and specific
 
-### Recommendation Improvement
-- Replace impractical recommendations with improved approaches
-- Enhance insufficient recommendations to address all aspects of the gap
-- Ensure recommendations are actionable and specific
-
-### Impact Assessment
-- Adjust impact statements to accurately reflect true criticality
-- Ensure impact descriptions are concrete and specific
-- Align impact assessments with project development realities
+### Synthesis Improvements
+- Identify new patterns across both perspectives
+- Enhance bidirectional issue identification
+- Improve prioritized resolutions to address the most critical conflicts
+- Ensure holistic integration of both perspectives
 
 ## Validation Checklist
 
 Before finalizing your revised analysis:
-1. Confirm all false positives have been removed
-2. Verify all missing gaps have been added
-3. Ensure all evidence issues have been addressed
-4. Check that recommendation improvements have been implemented
-5. Validate that impact adjustments have been made
-6. Confirm that all gaps have appropriate evidence and recommendations
-7. Ensure appropriate project description scope is maintained
+1. Confirm all false positives have been removed from both perspectives
+2. Verify all missing conflicts have been added to appropriate perspectives
+3. Ensure all evidence quality issues have been addressed
+4. Validate that severity ratings accurately reflect potential impact
+5. Check that all recommendation improvements have been implemented
+6. Confirm that synthesis improvements have been incorporated
+7. Ensure appropriate balance of conflicts across both perspectives
+8. Verify that bidirectional issues are properly identified and addressed
 
 ## Self-Correction Principles
 
-1. Focus on gaps that genuinely impact project success
-2. Prioritize substantive over superficial gaps
-3. Balance gap identification across all categories
-4. Ensure gaps are traced to concrete development concerns
-5. Provide practical, actionable recommendations
-6. Consider the project context when assessing gap criticality
-7. Align analysis with established software development principles
+1. Focus on genuine conflicts that would impact project success
+2. Maintain clear directional separation between perspectives
+3. Ensure conflicts are supported by specific evidence from both sources
+4. Assign severity ratings consistently based on development impact
+5. Provide practical, actionable recommendations that respect both sources
+6. Highlight bidirectional issues requiring mutual accommodation
+7. Ensure synthesis effectively integrates insights from both perspectives
 """
 
-initial_description_gap_analysis_revision_schema = {
+initial_description_conflict_analysis_revision_schema = {
   "type": "object",
   "properties": {
     "revision_metadata": {
@@ -542,94 +1409,140 @@ initial_description_gap_analysis_revision_schema = {
         "processed_feedback": {
           "type": "object",
           "properties": {
-            "false_positives_removed": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "gap_type": {
-                    "type": "string",
-                    "enum": ["scope", "stakeholder", "context", "success_criteria"]
+            "perspective_improvements": {
+              "type": "object",
+              "properties": {
+                "task_vs_guidelines": {
+                  "type": "object",
+                  "properties": {
+                    "comprehensiveness": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "evidence_quality": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "severity_assessment": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
                   },
-                  "gap_description": {
-                    "type": "string"
-                  }
+                  "required": ["comprehensiveness", "evidence_quality", "severity_assessment"]
                 },
-                "required": ["gap_type", "gap_description"]
-              }
+                "guidelines_vs_task": {
+                  "type": "object",
+                  "properties": {
+                    "comprehensiveness": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "evidence_quality": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    },
+                    "severity_assessment": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": ["comprehensiveness", "evidence_quality", "severity_assessment"]
+                }
+              },
+              "required": ["task_vs_guidelines", "guidelines_vs_task"]
             },
-            "missing_gaps_added": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "gap_type": {
-                    "type": "string",
-                    "enum": ["scope", "stakeholder", "context", "success_criteria"]
+            "conflict_adjustments": {
+              "type": "object",
+              "properties": {
+                "false_positives_removed": {
+                  "type": "object",
+                  "properties": {
+                    "task_vs_guidelines": {
+                      "type": "integer"
+                    },
+                    "guidelines_vs_task": {
+                      "type": "integer"
+                    }
                   },
-                  "gap_description": {
-                    "type": "string"
-                  }
+                  "required": ["task_vs_guidelines", "guidelines_vs_task"]
                 },
-                "required": ["gap_type", "gap_description"]
-              }
+                "conflicts_added": {
+                  "type": "object",
+                  "properties": {
+                    "task_vs_guidelines": {
+                      "type": "integer"
+                    },
+                    "guidelines_vs_task": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": ["task_vs_guidelines", "guidelines_vs_task"]
+                },
+                "evidence_strengthened": {
+                  "type": "object",
+                  "properties": {
+                    "task_vs_guidelines": {
+                      "type": "integer"
+                    },
+                    "guidelines_vs_task": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": ["task_vs_guidelines", "guidelines_vs_task"]
+                },
+                "severity_adjusted": {
+                  "type": "object",
+                  "properties": {
+                    "task_vs_guidelines": {
+                      "type": "integer"
+                    },
+                    "guidelines_vs_task": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": ["task_vs_guidelines", "guidelines_vs_task"]
+                },
+                "recommendations_improved": {
+                  "type": "object",
+                  "properties": {
+                    "task_vs_guidelines": {
+                      "type": "integer"
+                    },
+                    "guidelines_vs_task": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": ["task_vs_guidelines", "guidelines_vs_task"]
+                }
+              },
+              "required": [
+                "false_positives_removed",
+                "conflicts_added",
+                "evidence_strengthened",
+                "severity_adjusted",
+                "recommendations_improved"
+              ]
             },
-            "evidence_strengthened": {
+            "synthesis_improvements": {
               "type": "array",
               "items": {
-                "type": "object",
-                "properties": {
-                  "gap_type": {
-                    "type": "string",
-                    "enum": ["scope", "stakeholder", "context", "success_criteria"]
-                  },
-                  "gap_description": {
-                    "type": "string"
-                  }
-                },
-                "required": ["gap_type", "gap_description"]
-              }
-            },
-            "recommendations_improved": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "gap_type": {
-                    "type": "string",
-                    "enum": ["scope", "stakeholder", "context", "success_criteria"]
-                  },
-                  "gap_description": {
-                    "type": "string"
-                  }
-                },
-                "required": ["gap_type", "gap_description"]
-              }
-            },
-            "impact_adjusted": {
-              "type": "array",
-              "items": {
-                "type": "object",
-                "properties": {
-                  "gap_type": {
-                    "type": "string",
-                    "enum": ["scope", "stakeholder", "context", "success_criteria"]
-                  },
-                  "gap_description": {
-                    "type": "string"
-                  }
-                },
-                "required": ["gap_type", "gap_description"]
+                "type": "string"
               }
             }
           },
-          "required": [
-            "false_positives_removed",
-            "missing_gaps_added",
-            "evidence_strengthened",
-            "recommendations_improved",
-            "impact_adjusted"
-          ]
+          "required": ["perspective_improvements", "conflict_adjustments", "synthesis_improvements"]
         },
         "validation_steps": {
           "type": "array",
@@ -640,120 +1553,407 @@ initial_description_gap_analysis_revision_schema = {
       },
       "required": ["processed_feedback", "validation_steps"]
     },
-    "critical_description_gaps": {
+    "dual_perspective_conflicts": {
       "type": "object",
       "properties": {
-        "scope_gaps": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "gap": {
-                "type": "string"
-              },
-              "impact": {
-                "type": "string"
-              },
-              "evidence": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "recommendation": {
-                "type": "string"
-              },
-              "revision_note": {
-                "type": "string"
+        "task_vs_guidelines": {
+          "type": "object",
+          "properties": {
+            "scope_conflicts": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "conflict": {
+                    "type": "string"
+                  },
+                  "impact": {
+                    "type": "string"
+                  },
+                  "evidence": {
+                    "type": "object",
+                    "properties": {
+                      "task_description": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "guidelines": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "required": ["task_description", "guidelines"]
+                  },
+                  "severity": {
+                    "type": "string",
+                    "enum": ["high", "medium", "low"]
+                  },
+                  "recommendation": {
+                    "type": "string"
+                  },
+                  "revision_note": {
+                    "type": "string"
+                  }
+                },
+                "required": ["conflict", "impact", "evidence", "severity", "recommendation", "revision_note"]
               }
             },
-            "required": ["gap", "impact", "evidence", "recommendation", "revision_note"]
-          }
+            "stakeholder_conflicts": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "conflict": {
+                    "type": "string"
+                  },
+                  "impact": {
+                    "type": "string"
+                  },
+                  "evidence": {
+                    "type": "object",
+                    "properties": {
+                      "task_description": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "guidelines": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "required": ["task_description", "guidelines"]
+                  },
+                  "severity": {
+                    "type": "string",
+                    "enum": ["high", "medium", "low"]
+                  },
+                  "recommendation": {
+                    "type": "string"
+                  },
+                  "revision_note": {
+                    "type": "string"
+                  }
+                },
+                "required": ["conflict", "impact", "evidence", "severity", "recommendation", "revision_note"]
+              }
+            },
+            "context_conflicts": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "conflict": {
+                    "type": "string"
+                  },
+                  "impact": {
+                    "type": "string"
+                  },
+                  "evidence": {
+                    "type": "object",
+                    "properties": {
+                      "task_description": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "guidelines": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "required": ["task_description", "guidelines"]
+                  },
+                  "severity": {
+                    "type": "string",
+                    "enum": ["high", "medium", "low"]
+                  },
+                  "recommendation": {
+                    "type": "string"
+                  },
+                  "revision_note": {
+                    "type": "string"
+                  }
+                },
+                "required": ["conflict", "impact", "evidence", "severity", "recommendation", "revision_note"]
+              }
+            },
+            "criteria_conflicts": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "conflict": {
+                    "type": "string"
+                  },
+                  "impact": {
+                    "type": "string"
+                  },
+                  "evidence": {
+                    "type": "object",
+                    "properties": {
+                      "task_description": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "guidelines": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "required": ["task_description", "guidelines"]
+                  },
+                  "severity": {
+                    "type": "string",
+                    "enum": ["high", "medium", "low"]
+                  },
+                  "recommendation": {
+                    "type": "string"
+                  },
+                  "revision_note": {
+                    "type": "string"
+                  }
+                },
+                "required": ["conflict", "impact", "evidence", "severity", "recommendation", "revision_note"]
+              }
+            }
+          },
+          "required": ["scope_conflicts", "stakeholder_conflicts", "context_conflicts", "criteria_conflicts"]
         },
-        "stakeholder_gaps": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "gap": {
-                "type": "string"
-              },
-              "impact": {
-                "type": "string"
-              },
-              "evidence": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "recommendation": {
-                "type": "string"
-              },
-              "revision_note": {
-                "type": "string"
+        "guidelines_vs_task": {
+          "type": "object",
+          "properties": {
+            "scope_conflicts": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "conflict": {
+                    "type": "string"
+                  },
+                  "impact": {
+                    "type": "string"
+                  },
+                  "evidence": {
+                    "type": "object",
+                    "properties": {
+                      "guidelines": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "task_description": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "required": ["guidelines", "task_description"]
+                  },
+                  "severity": {
+                    "type": "string",
+                    "enum": ["high", "medium", "low"]
+                  },
+                  "recommendation": {
+                    "type": "string"
+                  },
+                  "revision_note": {
+                    "type": "string"
+                  }
+                },
+                "required": ["conflict", "impact", "evidence", "severity", "recommendation", "revision_note"]
               }
             },
-            "required": ["gap", "impact", "evidence", "recommendation", "revision_note"]
-          }
+            "stakeholder_conflicts": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "conflict": {
+                    "type": "string"
+                  },
+                  "impact": {
+                    "type": "string"
+                  },
+                  "evidence": {
+                    "type": "object",
+                    "properties": {
+                      "guidelines": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "task_description": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "required": ["guidelines", "task_description"]
+                  },
+                  "severity": {
+                    "type": "string",
+                    "enum": ["high", "medium", "low"]
+                  },
+                  "recommendation": {
+                    "type": "string"
+                  },
+                  "revision_note": {
+                    "type": "string"
+                  }
+                },
+                "required": ["conflict", "impact", "evidence", "severity", "recommendation", "revision_note"]
+              }
+            },
+            "context_conflicts": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "conflict": {
+                    "type": "string"
+                  },
+                  "impact": {
+                    "type": "string"
+                  },
+                  "evidence": {
+                    "type": "object",
+                    "properties": {
+                      "guidelines": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "task_description": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "required": ["guidelines", "task_description"]
+                  },
+                  "severity": {
+                    "type": "string",
+                    "enum": ["high", "medium", "low"]
+                  },
+                  "recommendation": {
+                    "type": "string"
+                  },
+                  "revision_note": {
+                    "type": "string"
+                  }
+                },
+                "required": ["conflict", "impact", "evidence", "severity", "recommendation", "revision_note"]
+              }
+            },
+            "criteria_conflicts": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "conflict": {
+                    "type": "string"
+                  },
+                  "impact": {
+                    "type": "string"
+                  },
+                  "evidence": {
+                    "type": "object",
+                    "properties": {
+                      "guidelines": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      },
+                      "task_description": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        }
+                      }
+                    },
+                    "required": ["guidelines", "task_description"]
+                  },
+                  "severity": {
+                    "type": "string",
+                    "enum": ["high", "medium", "low"]
+                  },
+                  "recommendation": {
+                    "type": "string"
+                  },
+                  "revision_note": {
+                    "type": "string"
+                  }
+                },
+                "required": ["conflict", "impact", "evidence", "severity", "recommendation", "revision_note"]
+              }
+            }
+          },
+          "required": ["scope_conflicts", "stakeholder_conflicts", "context_conflicts", "criteria_conflicts"]
         },
-        "context_gaps": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "gap": {
-                "type": "string"
-              },
-              "impact": {
-                "type": "string"
-              },
-              "evidence": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "recommendation": {
-                "type": "string"
-              },
-              "revision_note": {
+        "synthesis": {
+          "type": "object",
+          "properties": {
+            "key_patterns": {
+              "type": "array",
+              "items": {
                 "type": "string"
               }
             },
-            "required": ["gap", "impact", "evidence", "recommendation", "revision_note"]
-          }
-        },
-        "success_criteria_gaps": {
-          "type": "array",
-          "items": {
-            "type": "object",
-            "properties": {
-              "gap": {
-                "type": "string"
-              },
-              "impact": {
-                "type": "string"
-              },
-              "evidence": {
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
-              },
-              "recommendation": {
-                "type": "string"
-              },
-              "revision_note": {
+            "bidirectional_issues": {
+              "type": "array",
+              "items": {
                 "type": "string"
               }
             },
-            "required": ["gap", "impact", "evidence", "recommendation", "revision_note"]
-          }
+            "prioritized_resolutions": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "area": {
+                    "type": "string"
+                  },
+                  "recommendation": {
+                    "type": "string"
+                  },
+                  "justification": {
+                    "type": "string"
+                  },
+                  "revision_note": {
+                    "type": "string"
+                  }
+                },
+                "required": ["area", "recommendation", "justification", "revision_note"]
+              }
+            }
+          },
+          "required": ["key_patterns", "bidirectional_issues", "prioritized_resolutions"]
         }
       },
-      "required": ["scope_gaps", "stakeholder_gaps", "context_gaps", "success_criteria_gaps"]
+      "required": ["task_vs_guidelines", "guidelines_vs_task", "synthesis"]
     }
   },
-  "required": ["revision_metadata", "critical_description_gaps"]
+  "required": ["revision_metadata", "dual_perspective_conflicts"]
 }

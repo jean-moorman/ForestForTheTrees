@@ -21,7 +21,7 @@ from phase_zero.agents.optimization import PollinatorAgent
 from phase_zero.agents.synthesis import EvolutionAgent
 from phase_zero.utils import with_timeout, get_system_state, execute_agent_with_monitoring
 from phase_zero.validation.earth import validate_guideline_update
-from phase_zero.validation.water import propagate_guideline_update
+from phase_zero.validation.water import coordinate_agents
 
 logger = logging.getLogger(__name__)
 
@@ -601,12 +601,29 @@ class PhaseZeroOrchestrator(PhaseZeroInterface):
         )
 
     async def propagate_guideline_update(self, agent_id: str, updated_guideline: Dict, affected_agents: List[str] = None) -> Dict:
-        """Water mechanism: Propagate guideline updates to affected downstream components."""
-        return await propagate_guideline_update(
-            agent_id, 
-            updated_guideline, 
-            affected_agents, 
-            event_queue=self._event_queue,
-            health_tracker=self._health_tracker, 
-            state_manager=self._state_manager
-        )
+        """
+        STUB IMPLEMENTATION ONLY.
+        
+        Water mechanism: Propagate guideline updates to affected downstream components.
+        
+        Note: This is a stub implementation as the Water propagation functionality has been removed.
+        It always returns success without actually propagating anything.
+        """
+        logger.warning(f"STUB: Guideline update propagation called for agent {agent_id} but Water propagation functionality has been removed")
+        
+        if affected_agents is None:
+            affected_agents = []
+            
+        # Return a successful result without actual propagation
+        return {
+            "success": True,
+            "affected_agents": affected_agents,
+            "updates": [],
+            "failures": [],
+            "metadata": {
+                "propagation_id": f"dummy_{datetime.now().isoformat()}",
+                "origin_agent": agent_id,
+                "timestamp": datetime.now().isoformat(),
+                "warning": "Water propagation functionality has been removed. This is a stub implementation."
+            }
+        }

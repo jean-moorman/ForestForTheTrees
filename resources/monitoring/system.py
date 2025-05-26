@@ -7,6 +7,7 @@ components and provides a unified system health view.
 
 import asyncio
 import logging
+import threading
 import psutil
 from datetime import datetime
 from typing import Dict, Any, Optional, List
@@ -49,14 +50,16 @@ class SystemMonitor:
         self._metrics = ReliabilityMetrics(self.config.metric_window)
         self._shutdown = False  # Initialize _shutdown flag
         self._tasks: List[asyncio.Task] = []  # Initialize tasks list
+        self._lock = threading.RLock()  # Add thread-safe lock
 
     async def register_circuit_breaker(self, name: str, circuit_breaker: 'CircuitBreaker') -> None:
         """Register a circuit breaker for monitoring
         
         This method maintains backwards compatibility while integrating with CircuitBreakerRegistry.
         """
-        # Keep reference in local dictionary for backwards compatibility
-        self._circuit_breakers[name] = circuit_breaker
+        # Keep reference in local dictionary with thread safety
+        with self._lock:
+            self._circuit_breakers[name] = circuit_breaker
         
         # Make sure event queue is started
         if not hasattr(self.event_queue, '_running') or not self.event_queue._running:
@@ -88,7 +91,11 @@ class SystemMonitor:
         # Fallback to legacy behavior if registry fails or is unavailable
         current_time = datetime.now()
         
-        for name, breaker in self._circuit_breakers.items():
+        # Get a thread-safe copy of circuit breakers
+        with self._lock:
+            circuit_breakers = dict(self._circuit_breakers)
+        
+        for name, breaker in circuit_breakers.items():
             try:
                 # Calculate time in current state
                 duration = (current_time - breaker.last_state_change).total_seconds()
@@ -136,32 +143,37 @@ class SystemMonitor:
 
     async def start(self) -> None:
         """Start system monitoring"""
-        if self._running:
-            return
+        with self._lock:
+            if self._running:
+                return
 
-        self._running = True
+            self._running = True
+            
         loop = asyncio.get_event_loop()
         self._monitoring_task = loop.create_task(self._monitoring_loop())
         logger.info("System monitoring started")
 
     async def stop(self) -> None:
         """Stop system monitoring"""
-        if not self._running:
-            return
-
-        # Set running flag to False to stop the monitoring loop
-        self._running = False
-
-        # Flag to prevent processing new events during shutdown
-        self._shutdown = True
-        
+        # Get and set state with thread safety
+        with self._lock:
+            if not self._running:
+                return
+                
+            # Set running flag to False to stop the monitoring loop
+            self._running = False
+            # Flag to prevent processing new events during shutdown
+            self._shutdown = True
+            # Get local references to tasks
+            monitoring_task = self._monitoring_task
+            
         logger.info("Stopping SystemMonitor components")
 
-        if self._monitoring_task and not self._monitoring_task.done():
+        if monitoring_task and not monitoring_task.done():
             try:
-                self._monitoring_task.cancel()
+                monitoring_task.cancel()
                 try:
-                    await asyncio.wait_for(self._monitoring_task, timeout=2.0)
+                    await asyncio.wait_for(monitoring_task, timeout=2.0)
                 except (asyncio.TimeoutError, asyncio.CancelledError):
                     logger.warning("Monitoring task cancellation timed out or was cancelled")
             except Exception as e:
@@ -185,20 +197,29 @@ class SystemMonitor:
             logger.info("Stopping health tracker")
             await self.health_tracker.stop()
         
+        # Get a thread-safe copy of tasks
+        with self._lock:
+            tasks = list(self._tasks)
+        
         # Cancel any pending tasks
-        for task in getattr(self, '_tasks', []):
+        for task in tasks:
             if not task.done():
                 task.cancel()
         
         # Wait for tasks to complete cancellation
-        if hasattr(self, '_tasks'):
-            await asyncio.gather(*self._tasks, return_exceptions=True)
+        if tasks:
+            await asyncio.gather(*tasks, return_exceptions=True)
         
         logger.info("SystemMonitor stopped")
 
     async def _monitoring_loop(self) -> None:
         """Main monitoring loop"""
-        while self._running:
+        while True:
+            # Check if we should continue running with thread safety
+            with self._lock:
+                if not self._running:
+                    break
+                    
             try:
                 # Check memory status
                 await self._check_memory_status()
@@ -309,11 +330,16 @@ class SystemMonitor:
                     except Exception as e:
                         logger.error(f"Error getting system memory: {e}")
                 
+                # Get thread-safe access to memory monitor data
+                with self.memory_monitor._lock:
+                    resource_count = len(self.memory_monitor._resource_sizes)
+                    resource_total = sum(self.memory_monitor._resource_sizes.values())
+                
                 metrics["memory"] = {
                     "tracked_usage": memory_usage,
                     "system": system_memory,
-                    "resources_count": len(self.memory_monitor._resource_sizes) if hasattr(self, "memory_monitor") else 0,
-                    "tracked_mb": sum(self.memory_monitor._resource_sizes.values()) if hasattr(self, "memory_monitor") else 0
+                    "resources_count": resource_count,
+                    "tracked_mb": resource_total
                 }
             except Exception as e:
                 logger.error(f"Error collecting memory metrics: {e}")
@@ -323,14 +349,20 @@ class SystemMonitor:
             try:
                 if hasattr(self, 'health_tracker'):
                     system_health = self.health_tracker.get_system_health()
+                    
+                    # Get thread-safe access to health tracker data
+                    with self.health_tracker._lock:
+                        component_count = len(self.health_tracker._component_health)
+                        component_health = {
+                            component: status.status
+                            for component, status in self.health_tracker._component_health.items()
+                        }
+                    
                     metrics["health"] = {
                         "status": system_health.status,
                         "description": system_health.description,
-                        "component_count": len(self.health_tracker._component_health) if hasattr(self.health_tracker, "_component_health") else 0,
-                        "components": {
-                            component: status.status
-                            for component, status in self.health_tracker._component_health.items()
-                        } if hasattr(self.health_tracker, "_component_health") else {}
+                        "component_count": component_count,
+                        "components": component_health
                     }
                 else:
                     metrics["health"] = {"status": "UNKNOWN", "description": "Health tracker not available"}
@@ -343,13 +375,17 @@ class SystemMonitor:
                 if hasattr(self, '_circuit_registry') and self._circuit_registry:
                     metrics["circuits"] = self._circuit_registry.get_circuit_status_summary()
                 elif hasattr(self, '_circuit_breakers'):
+                    # Thread-safe copy of circuit breakers
+                    with self._lock:
+                        circuit_breakers = dict(self._circuit_breakers)
+                        
                     metrics["circuits"] = {
                         name: {
                             "state": breaker.state.name,
                             "failure_count": breaker.failure_count,
                             "last_failure": breaker.last_failure_time.isoformat() if breaker.last_failure_time else None
                         }
-                        for name, breaker in self._circuit_breakers.items()
+                        for name, breaker in circuit_breakers.items()
                     }
                 else:
                     metrics["circuits"] = {"status": "No circuit breakers registered"}
@@ -360,9 +396,13 @@ class SystemMonitor:
             # Collect resource metrics if available
             try:
                 if hasattr(self, 'memory_monitor') and hasattr(self.memory_monitor, '_resource_sizes'):
+                    # Get thread-safe copy of resource sizes
+                    with self.memory_monitor._lock:
+                        resource_sizes = dict(self.memory_monitor._resource_sizes)
+                        
                     # Group resources by component/category
                     by_component = {}
-                    for resource_id, size in self.memory_monitor._resource_sizes.items():
+                    for resource_id, size in resource_sizes.items():
                         component = resource_id.split(':')[0] if ':' in resource_id else 'other'
                         if component not in by_component:
                             by_component[component] = {"count": 0, "total_mb": 0}
@@ -459,15 +499,17 @@ class SystemMonitor:
                 or None if an error occurs
         """
         try:
-            # Calculate total of tracked application resources
-            tracked_mb = sum(self.memory_monitor._resource_sizes.values())
-            
-            # If no resources are tracked, return 0%
-            if not tracked_mb:
-                return 0.0
-            
-            # Try to get total memory from configuration
-            total_memory_mb = getattr(self.memory_monitor._thresholds, 'total_memory_mb', None)
+            # Get thread-safe access to memory monitor data
+            with self.memory_monitor._lock:
+                # Calculate total of tracked application resources
+                tracked_mb = sum(self.memory_monitor._resource_sizes.values())
+                
+                # If no resources are tracked, return 0%
+                if not tracked_mb:
+                    return 0.0
+                
+                # Try to get total memory from configuration
+                total_memory_mb = getattr(self.memory_monitor._thresholds, 'total_memory_mb', None)
             
             # If total memory is not configured or is zero, get it from the system
             if not total_memory_mb:
