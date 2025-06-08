@@ -20,20 +20,20 @@ This package provides a clean, modular structure with separate components for
 each aspect of the code generation and refinement process.
 """
 
-from phase_four.models import (
+from .models import (
     CompilerType, 
     CompilationState, 
     CompilationResult, 
     CompilationContext
 )
-from phase_four.agents import (
+from .agents import (
     CodeGenerationAgent,
     StaticCompilationAgent,
     CompilationDebugAgent,
     CompilationAnalysisAgent,
     CompilationRefinementAgent
 )
-from phase_four.interface import PhaseFourInterface
+from .interface import PhaseFourInterface
 
 __all__ = [
     # Models

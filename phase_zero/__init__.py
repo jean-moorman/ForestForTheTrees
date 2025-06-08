@@ -2,10 +2,10 @@ from phase_zero.orchestrator import PhaseZeroOrchestrator
 from phase_zero.base import BaseAnalysisAgent, AnalysisState, MetricsSnapshot
 
 from phase_zero.agents.monitoring import MonitoringAgent
-from phase_zero.agents.description_analysis import SunAgent, ShadeAgent, WindAgent
-from phase_zero.agents.requirement_analysis import SoilAgent, MicrobialAgent, RainAgent
-from phase_zero.agents.data_flow import RootSystemAgent, MycelialAgent, WormAgent
-from phase_zero.agents.structural import InsectAgent, BirdAgent, TreeAgent
+from phase_zero.agents.description_analysis import SunAgent, ShadeAgent
+from phase_zero.agents.requirement_analysis import SoilAgent, MicrobialAgent
+from phase_zero.agents.data_flow import MycelialAgent, WormAgent
+from phase_zero.agents.structural import BirdAgent, TreeAgent
 from phase_zero.agents.optimization import PollinatorAgent
 from phase_zero.agents.synthesis import EvolutionAgent
 
@@ -21,22 +21,18 @@ __all__ = [
     'AnalysisState',
     'MetricsSnapshot',
     
-    # Agents
+    # Agents (dual-perspective system)
     'MonitoringAgent',
-    'SunAgent',
-    'ShadeAgent',
-    'WindAgent',
-    'SoilAgent',
-    'MicrobialAgent',
-    'RainAgent',
-    'RootSystemAgent',
-    'MycelialAgent',
-    'WormAgent',
-    'InsectAgent',
-    'BirdAgent',
-    'TreeAgent',
-    'PollinatorAgent',
-    'EvolutionAgent',
+    'SunAgent',        # Dual-perspective description analysis (issues + gaps)
+    'ShadeAgent',      # Dual-perspective description conflicts 
+    'SoilAgent',       # Dual-perspective requirements analysis (issues + gaps)
+    'MicrobialAgent',  # Dual-perspective requirements conflicts
+    'MycelialAgent',   # Dual-perspective data flow conflicts
+    'WormAgent',       # Dual-perspective data flow analysis (issues + gaps)
+    'BirdAgent',       # Dual-perspective structural conflicts
+    'TreeAgent',       # Dual-perspective structural analysis (issues + gaps)
+    'PollinatorAgent', # Enhanced cross-guideline optimization
+    'EvolutionAgent',  # Enhanced dual-perspective synthesis
     
     # Validation mechanisms
     'validate_guideline_update',

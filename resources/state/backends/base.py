@@ -42,3 +42,13 @@ class StateStorageBackend(ABC):
     async def cleanup(self, older_than: Optional[datetime] = None) -> int:
         """Clean up old entries, returns count of removed items"""
         pass
+        
+    @abstractmethod
+    async def delete_state(self, resource_id: str) -> bool:
+        """Delete a state entry from storage"""
+        pass
+        
+    @abstractmethod
+    async def clear_all_states(self) -> int:
+        """Clear all states from storage, returns count of removed items"""
+        pass

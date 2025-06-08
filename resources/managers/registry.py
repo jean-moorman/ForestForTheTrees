@@ -100,7 +100,7 @@ class CircuitBreakerRegistry:
             # If event queue is available, emit registration event
             if self._event_queue:
                 try:
-                    await self.event_bus.emit(
+                    await self._event_queue.emit(
                         ResourceEventTypes.SYSTEM_HEALTH_CHANGED.value,
                         {
                             "component": "circuit_breaker_registry",
@@ -143,7 +143,7 @@ class CircuitBreakerRegistry:
         # Emit event for state change
         if self._event_queue:
             try:
-                await self.event_bus.emit(
+                await self._event_queue.emit(
                     ResourceEventTypes.SYSTEM_HEALTH_CHANGED.value,
                     {
                         "component": "circuit_breaker",
@@ -251,6 +251,124 @@ class CircuitBreakerRegistry:
                 logger.error(f"Error emitting circuit reset event: {e}")
                 
         return {"reset_count": reset_count, "total_circuits": len(self._circuit_breakers)}
+    
+    async def start_monitoring(self):
+        """Start circuit breaker monitoring in background loop context."""
+        from resources.events.loop_management import EventLoopManager
+        
+        # Ensure we're in the correct loop context
+        try:
+            current_loop = asyncio.get_running_loop()
+        except RuntimeError:
+            current_loop = None
+        
+        # Get the background loop
+        background_loop = EventLoopManager.get_background_loop()
+        
+        # If we're not in the background loop, submit to it
+        if current_loop != background_loop and background_loop:
+            logger.info("Delegating start_monitoring to background loop")
+            return await asyncio.wrap_future(
+                asyncio.run_coroutine_threadsafe(self.start_monitoring(), background_loop)
+            )
+        
+        # We're in the correct loop context, start monitoring
+        if hasattr(self, '_monitoring_task') and self._monitoring_task and not self._monitoring_task.done():
+            logger.debug("Circuit breaker monitoring already running")
+            return
+        
+        try:
+            self._monitoring_task = asyncio.create_task(self._monitoring_loop())
+            self._tasks.add(self._monitoring_task)
+            logger.info("Circuit breaker monitoring started")
+        except Exception as e:
+            logger.error(f"Error starting circuit breaker monitoring: {e}", exc_info=True)
+            raise
+    
+    async def _monitoring_loop(self):
+        """Background monitoring loop for circuit breakers."""
+        try:
+            while not getattr(self, '_shutdown_monitoring', False):
+                try:
+                    # Check circuit breaker health
+                    await self._check_circuit_health()
+                    
+                    # Check for cascade failures
+                    await self._check_cascade_conditions()
+                    
+                    # Sleep between checks
+                    await asyncio.sleep(5.0)  # Check every 5 seconds
+                    
+                except asyncio.CancelledError:
+                    logger.debug("Circuit breaker monitoring cancelled")
+                    break
+                except Exception as e:
+                    logger.error(f"Error in circuit breaker monitoring loop: {e}", exc_info=True)
+                    await asyncio.sleep(1.0)  # Brief pause before retry
+                    
+        finally:
+            logger.info("Circuit breaker monitoring loop stopped")
+    
+    async def _check_circuit_health(self):
+        """Check health of all registered circuit breakers."""
+        with self._lock:
+            circuits_to_check = list(self._circuit_breakers.items())
+        
+        for name, circuit in circuits_to_check:
+            try:
+                # Basic health check - ensure circuit is responsive
+                if hasattr(circuit, 'is_healthy') and callable(circuit.is_healthy):
+                    is_healthy = await circuit.is_healthy()
+                    if not is_healthy:
+                        logger.warning(f"Circuit breaker {name} health check failed")
+                        
+                        # Emit health change event
+                        if self._event_queue:
+                            await self._event_queue.emit(
+                                ResourceEventTypes.SYSTEM_HEALTH_CHANGED.value,
+                                {
+                                    "component": f"circuit_breaker_{name}",
+                                    "status": "unhealthy",
+                                    "timestamp": datetime.now().isoformat()
+                                }
+                            )
+            except Exception as e:
+                logger.error(f"Error checking health of circuit breaker {name}: {e}")
+    
+    async def _check_cascade_conditions(self):
+        """Check for conditions that might trigger cascade failures."""
+        with self._lock:
+            # Check for multiple related circuits in OPEN state
+            open_circuits = []
+            for name, circuit in self._circuit_breakers.items():
+                if hasattr(circuit, 'state') and circuit.state == "OPEN":
+                    open_circuits.append(name)
+            
+            # If we have multiple open circuits, emit cascade warning
+            if len(open_circuits) >= 2:
+                if self._event_queue:
+                    await self._event_queue.emit(
+                        ResourceEventTypes.SYSTEM_HEALTH_CHANGED.value,
+                        {
+                            "component": "circuit_breaker_registry",
+                            "status": "cascade_risk",
+                            "open_circuits": open_circuits,
+                            "timestamp": datetime.now().isoformat()
+                        }
+                    )
+    
+    async def stop_monitoring(self):
+        """Stop circuit breaker monitoring."""
+        self._shutdown_monitoring = True
+        
+        if hasattr(self, '_monitoring_task') and self._monitoring_task:
+            self._monitoring_task.cancel()
+            try:
+                await self._monitoring_task
+            except asyncio.CancelledError:
+                pass
+            
+        logger.info("Circuit breaker monitoring stopped")
     
     async def stop(self):
         """Clean up resources."""

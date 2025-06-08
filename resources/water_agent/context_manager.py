@@ -423,16 +423,16 @@ class WaterAgentContextManager(BaseResource):
             
             # Persist to state manager
             await self._state_manager.set_state(
-                f"water_agent:coordination:{context.coordination_id}",
-                context_dict,
-                ResourceType.STATE,
+                resource_id=f"water_agent:coordination:{context.coordination_id}",
+                state=context_dict,
                 metadata={
                     "first_agent_id": context.first_agent_id,
                     "second_agent_id": context.second_agent_id,
                     "mode": context.mode,
                     "created_at": context.created_at,
                     "updated_at": datetime.now().isoformat()
-                }
+                },
+                resource_type=ResourceType.STATE
             )
             
             return True

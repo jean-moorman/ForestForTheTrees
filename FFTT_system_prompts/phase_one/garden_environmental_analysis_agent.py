@@ -18,6 +18,8 @@ You are the allegorically named Garden Environmental Analysis Agent, responsible
 
 ## Output Format
 
+**CRITICAL: You must return ONLY valid JSON. Do not include any explanatory text, markdown code blocks, or additional commentary outside the JSON structure. Your entire response must be parseable as JSON.**
+
 Provide your analysis in the following JSON format:
 
 ```json
@@ -155,7 +157,7 @@ You are the Environment Analysis Reflection Agent, responsible for validating an
 Provide your reflection in the following JSON format:
 
 ```json
-{"reflection_results": {"feasibility_issues": {"resource_requirements": [{"severity": "high|medium|low","component_type": "runtime|deployment|integration","issue": "string","recommendation": "string"}],"compatibility_conflicts": [{"severity": "high|medium|low","affected_components": ["strings"],"conflict": "string","recommendation": "string"}]},"completeness_issues": {"missing_dependencies": [{"severity": "high|medium|low","component_type": "runtime|deployment|integration","missing_dependency": "string","impact": "string","recommendation": "string"}],"integration_gaps": [{"severity": "high|medium|low","integration_type": "api|service|database","issue": "string","recommendation": "string"}]},"specification_issues": {"version_specificity": [{"severity": "high|medium|low","component": "string","issue": "string","recommendation": "string"}],"deployment_details": [{"severity": "high|medium|low","aspect": "environment|service|resource","issue": "string","recommendation": "string"}],"scaling_considerations": [{"severity": "high|medium|low","aspect": "performance|load|storage","issue": "string","recommendation": "string"}]}}}
+{"reflection_results": {"feasibility_issues": {"resource_requirements": [{"severity": "high|medium|low","component_type": "runtime|deployment|integration","issue": "string","recommendation": "string"}],"compatibility_conflicts": [{"severity": "high|medium|low","affected_components": ["strings"],"conflict": "string","recommendation": "string"}]},"completeness_issues": {"missing_dependencies": [{"severity": "high|medium|low","component_type": "runtime|deployment|integration","missing_dependency": "string","impact": "string","recommendation": "string"}],"integration_gaps": [{"severity": "high|medium|low","integration_type": "api|service|database","issue": "string","recommendation": "string"}]},"specification_issues": {"version_specificity": [{"severity": "high|medium|low","component": "string","issue": "string","recommendation": "string"}],"deployment_details": [{"severity": "high|medium|low","aspect": "environment|service|resource","issue": "string","recommendation": "string"}],"scaling_considerations": [{"severity": "high|medium|low","aspect": "performance|load|storage","issue": "string","recommendation": "string"}]},"validation_status": {"passed": true|false,"blocking_issues_count": 0,"warnings_count": 0,"requires_revision": true|false}}}
 ```
 
 ## Field Descriptions
@@ -164,6 +166,12 @@ Provide your reflection in the following JSON format:
 - `high`: Critical issues that must be addressed for system functionality
 - `medium`: Important issues that could impact system performance or stability
 - `low`: Minor issues that should be considered for optimal system operation
+
+### Validation Status
+- `passed`: Set to true if no high severity issues are found, false otherwise
+- `blocking_issues_count`: Count of high severity issues across all categories
+- `warnings_count`: Count of medium and low severity issues across all categories
+- `requires_revision`: Set to true if any high severity issues are found, false otherwise
 
 ### Feasibility Issues
 - **resource_requirements**: Issues related to specified resource needs
@@ -221,7 +229,7 @@ core_requirements_reflection_schema = {
                                     },
                                     "component_type": {
                                         "type": "string",
-                                        "enum": ["runtime", "deployment", "integration"]
+                                        "enum": ["runtime", "deployment", "integration", "development"]
                                     },
                                     "issue": {
                                         "type": "string"
@@ -230,7 +238,7 @@ core_requirements_reflection_schema = {
                                         "type": "string"
                                     }
                                 },
-                                "required": ["severity", "component", "issue", "recommendation"]
+                                "required": ["severity", "component_type", "issue", "recommendation"]
                             }
                         },
                         "compatibility_conflicts": {
@@ -256,7 +264,7 @@ core_requirements_reflection_schema = {
                                         "type": "string"
                                     }
                                 },
-                                "required": ["severity", "components", "conflict", "recommendation"]
+                                "required": ["severity", "affected_components", "conflict", "recommendation"]
                             }
                         }
                     },
@@ -276,7 +284,7 @@ core_requirements_reflection_schema = {
                                     },
                                     "component_type": {
                                         "type": "string",
-                                        "enum": ["runtime", "deployment", "integration"]
+                                        "enum": ["runtime", "deployment", "integration", "development"]
                                     },
                                     "missing_dependency": {
                                         "type": "string"
@@ -288,7 +296,7 @@ core_requirements_reflection_schema = {
                                         "type": "string"
                                     }
                                 },
-                                "required": ["severity", "component", "missing_dependency", "impact", "recommendation"]
+                                "required": ["severity", "component_type", "missing_dependency", "impact", "recommendation"]
                             }
                         },
                         "integration_gaps": {
@@ -339,7 +347,7 @@ core_requirements_reflection_schema = {
                                         "type": "string"
                                     }
                                 },
-                                "required": ["severity", "component", "issue", "recommendation"]
+                                "required": ["severity", "affected_component", "issue", "recommendation"]
                             }
                         },
                         "deployment_details": {
@@ -390,9 +398,27 @@ core_requirements_reflection_schema = {
                         }
                     },
                     "required": ["version_specificity", "deployment_details", "scaling_considerations"]
+                },
+                "validation_status": {
+                    "type": "object",
+                    "properties": {
+                        "passed": {
+                            "type": "boolean"
+                        },
+                        "blocking_issues_count": {
+                            "type": "integer"
+                        },
+                        "warnings_count": {
+                            "type": "integer"
+                        },
+                        "requires_revision": {
+                            "type": "boolean"
+                        }
+                    },
+                    "required": ["passed", "blocking_issues_count", "warnings_count", "requires_revision"]
                 }
             },
-            "required": ["feasibility_issues", "completeness_issues", "specification_issues"]
+            "required": ["feasibility_issues", "completeness_issues", "specification_issues", "validation_status"]
         }
     },
     "required": ["reflection_results"]

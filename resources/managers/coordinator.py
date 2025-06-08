@@ -56,6 +56,7 @@ class ResourceCoordinator:
             
             # Initialization state tracking
             self._initialization_state = {}  # manager_id -> state (not_started, in_progress, complete, failed)
+            self._batch_initialization_mode = False  # Flag to reduce event emission during bulk init
             
             # Register with EventLoopManager for proper lifecycle management
             from resources.events.loop_management import EventLoopManager, ThreadLocalEventLoopStorage
@@ -206,6 +207,9 @@ class ResourceCoordinator:
             
         logger.info(f"Starting initialization of resource managers (duplicate={is_duplicate_init})")
         
+        # Enable batch mode to reduce event emission during bulk initialization
+        self._batch_initialization_mode = True
+        
         # Calculate initialization order based on dependencies
         try:
             self._initialization_order = self._calculate_initialization_order()
@@ -289,7 +293,17 @@ class ResourceCoordinator:
         # Update initialization state
         self._initialized = success_count > 0  # Consider initialized if at least one manager succeeded
         
-        # Emit final initialization event
+        # Disable batch mode
+        self._batch_initialization_mode = False
+        
+        # Emit comprehensive final initialization event with detailed manager states
+        manager_states = {}
+        for manager_id in self._initialization_order:
+            manager_states[manager_id] = {
+                "state": self._initialization_state.get(manager_id, "unknown"),
+                "metadata": self._component_metadata.get(manager_id, {})
+            }
+        
         await self.event_queue.emit(
             ResourceEventTypes.RESOURCE_STATE_CHANGED.value,
             {
@@ -297,7 +311,9 @@ class ResourceCoordinator:
                 "state": "initialized" if self._initialized else "initialization_failed",
                 "success_count": success_count,
                 "total_count": total_count,
-                "success_rate": success_count / total_count if total_count > 0 else 0
+                "success_rate": success_count / total_count if total_count > 0 else 0,
+                "manager_states": manager_states,
+                "batch_mode": "comprehensive_final_report"
             }
         )
         
@@ -381,17 +397,20 @@ class ResourceCoordinator:
                 logger.error(f"Required dependency {dep_id} for {manager_id} is not initialized")
                 return False
                 
-        # Emit initialization event
-        try:
-            await self.event_queue.emit(
-                ResourceEventTypes.RESOURCE_STATE_CHANGED.value,
-                {
-                    "resource_id": manager_id,
-                    "state": "initializing"
-                }
-            )
-        except Exception as e:
-            logger.error(f"Error emitting initialization event for {manager_id}: {e}")
+        # Emit initialization event (skip during batch mode to reduce events)
+        if not self._batch_initialization_mode:
+            try:
+                await self.event_queue.emit(
+                    ResourceEventTypes.RESOURCE_STATE_CHANGED.value,
+                    {
+                        "resource_id": manager_id,
+                        "state": "initializing"
+                    }
+                )
+            except Exception as e:
+                logger.error(f"Error emitting initialization event for {manager_id}: {e}")
+        else:
+            logger.debug(f"Skipping individual initializing event for {manager_id} during batch mode")
             
         try:
             # Create initialization correlation ID for tracking
@@ -429,15 +448,18 @@ class ResourceCoordinator:
                 except Exception as e:
                     logger.error(f"Error registering circuit breaker for {manager_id}: {e}")
                 
-            # Emit successful initialization event
-            await self.event_queue.emit(
-                ResourceEventTypes.RESOURCE_STATE_CHANGED.value,
-                {
-                    "resource_id": manager_id,
-                    "state": "initialized",
-                    "correlation_id": correlation_id
-                }
-            )
+            # Emit successful initialization event (skip during batch mode to reduce events)
+            if not self._batch_initialization_mode:
+                await self.event_queue.emit(
+                    ResourceEventTypes.RESOURCE_STATE_CHANGED.value,
+                    {
+                        "resource_id": manager_id,
+                        "state": "initialized",
+                        "correlation_id": correlation_id
+                    }
+                )
+            else:
+                logger.debug(f"Skipping individual initialized event for {manager_id} during batch mode")
             
             # Update component metadata
             self._component_metadata[manager_id]["initialized"] = True

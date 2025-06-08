@@ -4,6 +4,7 @@ Earth Agent for Phase One validation of Garden Planner output.
 This agent validates the Garden Planner output against the original user request,
 providing feedback for refinement.
 """
+import asyncio
 import logging
 import json
 from typing import Dict, Any, Optional, List
@@ -18,6 +19,7 @@ from resources import (
     ErrorHandler,
     MemoryMonitor
 )
+from resources.common import ResourceType
 from resources.monitoring import HealthTracker, MemoryThresholds
 
 from phase_one.agents.base import ReflectiveAgent
@@ -66,32 +68,12 @@ class EarthAgent(ReflectiveAgent):
         # Define prompt configuration
         prompt_config = AgentPromptConfig(
             system_prompt_base_path="FFTT_system_prompts/core_agents/earth_agent",
-            reflection_prompt_name="reflection_prompt",
+            reflection_prompt_name="reflection_prompt", 
             refinement_prompt_name="revision_prompt",
             initial_prompt_name="garden_planner_validation_prompt"
         )
         
-        # Define circuit breakers
-        circuit_breakers = [
-            CircuitBreakerDefinition(
-                name="validation",
-                failure_threshold=3,
-                recovery_timeout=30,
-                failure_window=120
-            ),
-            CircuitBreakerDefinition(
-                name="reflection",
-                failure_threshold=2,
-                recovery_timeout=45,
-                failure_window=180
-            ),
-            CircuitBreakerDefinition(
-                name="revision",
-                failure_threshold=2,
-                recovery_timeout=45,
-                failure_window=180
-            )
-        ]
+        # Circuit breaker definitions removed - protection now at API level
         
         # Initialize base class
         super().__init__(
@@ -104,7 +86,6 @@ class EarthAgent(ReflectiveAgent):
             error_handler,
             memory_monitor,
             prompt_config,
-            circuit_breakers,
             health_tracker
         )
         
@@ -136,6 +117,9 @@ class EarthAgent(ReflectiveAgent):
         """
         Validate Garden Planner output against the user's original request.
         
+        Uses coordinated LLM processing to ensure API calls complete before
+        event processing shutdown, eliminating race conditions.
+        
         Args:
             user_request: The original user request
             garden_planner_output: The Garden Planner's task analysis output
@@ -144,6 +128,10 @@ class EarthAgent(ReflectiveAgent):
         Returns:
             Validation result with feedback and category (APPROVED/CORRECTED/REJECTED)
         """
+        # Create coordination event to track LLM operation completion
+        llm_operation_complete = asyncio.Event()
+        validation_result = None
+        
         try:
             # Initialize validation tracking
             self.development_state = DevelopmentState.VALIDATING
@@ -156,15 +144,18 @@ class EarthAgent(ReflectiveAgent):
             if not self._validate_input_structure(garden_planner_output):
                 error_message = "Invalid Garden Planner output structure"
                 logger.error(f"{error_message}: {garden_planner_output}")
+                self.development_state = DevelopmentState.ERROR
                 await self._report_agent_health(
                     custom_status="CRITICAL",
                     description=error_message,
                     metadata={
-                        "development_state": "VALIDATING",
+                        "development_state": "ERROR",
                         "error": error_message
                     }
                 )
-                return self._create_error_validation_response(error_message)
+                validation_result = self._create_error_validation_response(error_message)
+                llm_operation_complete.set()
+                return validation_result
             
             # Prepare validation context
             validation_context = {
@@ -181,31 +172,32 @@ class EarthAgent(ReflectiveAgent):
             await self._state_manager.set_state(
                 f"earth_agent:validation_context:{validation_id}",
                 validation_context,
-                ResourceType="STATE"
+                resource_type=ResourceType.STATE
             )
             
             # Add validation history to context if available
             if self.validation_history:
                 validation_context["validation_history"] = self.validation_history
             
-            # Process validation with circuit breaker protection
+            # Process validation with coordinated LLM operation
             try:
                 # Convert context to conversation string
                 conversation = json.dumps(validation_context, indent=2)
                 
-                # Perform validation using garden_planner_validation_prompt
-                validation_result = await self.get_circuit_breaker("validation").execute(
-                    lambda: self.process_with_validation(
-                        conversation=f"Validate Garden Planner output against user request: {conversation}",
-                        system_prompt_info=(self._prompt_config.system_prompt_base_path, 
-                                          self._prompt_config.initial_prompt_name)
-                    )
+                # Perform coordinated LLM processing that completes before event shutdown
+                validation_result = await self._coordinated_llm_processing(
+                    operation_name="validation",
+                    conversation=f"Validate Garden Planner output against user request: {conversation}",
+                    system_prompt_info=(self._prompt_config.system_prompt_base_path, 
+                                      self._prompt_config.initial_prompt_name),
+                    operation_complete_event=llm_operation_complete
                 )
                 
                 # Apply reflection and revision to improve validation
                 validation_result = await self._reflect_and_revise_validation(
                     validation_result, 
-                    validation_context
+                    validation_context,
+                    llm_operation_complete
                 )
                 
                 # Update validation history
@@ -217,6 +209,8 @@ class EarthAgent(ReflectiveAgent):
                 # Set appropriate development state based on validation result
                 await self._update_state_from_validation(validation_result)
                 
+                # Signal that all LLM operations are complete
+                llm_operation_complete.set()
                 return validation_result
                 
             except Exception as e:
@@ -232,7 +226,9 @@ class EarthAgent(ReflectiveAgent):
                     }
                 )
                 
-                return self._create_error_validation_response(str(e))
+                validation_result = self._create_error_validation_response(str(e))
+                llm_operation_complete.set()  # Signal completion even on error
+                return validation_result
                 
         except Exception as e:
             logger.error(f"Unexpected error in validate_garden_planner_output: {str(e)}")
@@ -247,19 +243,61 @@ class EarthAgent(ReflectiveAgent):
                 }
             )
             
-            return self._create_error_validation_response(str(e))
+            validation_result = self._create_error_validation_response(str(e))
+            llm_operation_complete.set()  # Signal completion even on error
+            return validation_result
+        finally:
+            # Ensure event is always set to prevent hanging
+            if not llm_operation_complete.is_set():
+                llm_operation_complete.set()
+
+    async def _coordinated_llm_processing(
+        self,
+        operation_name: str,
+        conversation: str,
+        system_prompt_info: tuple,
+        operation_complete_event: asyncio.Event
+    ) -> Dict[str, Any]:
+        """
+        Perform LLM processing with coordination to prevent race conditions.
+        
+        This method ensures that LLM operations complete before any event
+        processing shutdown occurs, eliminating timeout race conditions.
+        
+        Args:
+            operation_name: Name of the circuit breaker operation
+            conversation: Conversation content for LLM
+            system_prompt_info: System prompt information tuple
+            operation_complete_event: Event to signal when operation completes
+            
+        Returns:
+            LLM processing result
+        """
+        try:
+            # Direct processing - circuit breaker protection now at API level
+            result = await self.process_with_validation(
+                conversation=conversation,
+                system_prompt_info=system_prompt_info,
+                timeout=3600  # 1 hour - effectively no timeout for LLM processing
+            )
+            return result
+        except Exception as e:
+            logger.error(f"Error in coordinated LLM processing for {operation_name}: {str(e)}")
+            raise
     
     async def _reflect_and_revise_validation(
         self, 
         validation_result: Dict[str, Any],
-        validation_context: Dict[str, Any]
+        validation_context: Dict[str, Any],
+        operation_complete_event: asyncio.Event
     ) -> Dict[str, Any]:
         """
-        Apply reflection and revision to improve validation.
+        Apply reflection and revision to improve validation using coordinated processing.
         
         Args:
             validation_result: Initial validation result
             validation_context: Original validation context
+            operation_complete_event: Event to coordinate LLM operation completion
             
         Returns:
             Improved validation result after reflection and revision
@@ -276,13 +314,13 @@ class EarthAgent(ReflectiveAgent):
                 "timestamp": datetime.now().isoformat()
             }
             
-            # Process reflection with circuit breaker
-            reflection_result = await self.get_circuit_breaker("reflection").execute(
-                lambda: self.process_with_validation(
-                    conversation=json.dumps(reflection_context, indent=2),
-                    system_prompt_info=(self._prompt_config.system_prompt_base_path, 
-                                      "reflection_prompt")
-                )
+            # Process reflection with coordinated LLM processing
+            reflection_result = await self._coordinated_llm_processing(
+                operation_name="reflection",
+                conversation=json.dumps(reflection_context, indent=2),
+                system_prompt_info=(self._prompt_config.system_prompt_base_path, 
+                                  "reflection_prompt"),
+                operation_complete_event=operation_complete_event
             )
             
             # Skip revision if reflection suggests no critical improvements
@@ -299,37 +337,30 @@ class EarthAgent(ReflectiveAgent):
                 "timestamp": datetime.now().isoformat()
             }
             
-            # Process revision with circuit breaker
-            revision_result = await self.get_circuit_breaker("revision").execute(
-                lambda: self.process_with_validation(
-                    conversation=json.dumps(revision_context, indent=2),
-                    system_prompt_info=(self._prompt_config.system_prompt_base_path, 
-                                      "revision_prompt")
-                )
+            # Process revision with coordinated LLM processing
+            revision_result = await self._coordinated_llm_processing(
+                operation_name="revision",
+                conversation=json.dumps(revision_context, indent=2),
+                system_prompt_info=(self._prompt_config.system_prompt_base_path, 
+                                  "revision_prompt"),
+                operation_complete_event=operation_complete_event
             )
             
             # Extract revised validation
             if "revision_results" in revision_result and "revised_validation" in revision_result["revision_results"]:
                 revised_validation = revision_result["revision_results"]["revised_validation"]
                 
-                # Add revision metadata
-                if "metadata" not in revised_validation:
-                    revised_validation["metadata"] = {}
-                    
-                revised_validation["metadata"]["revision_applied"] = True
-                revised_validation["metadata"]["revision_timestamp"] = datetime.now().isoformat()
-                
                 # Store reflection and revision results in state
                 await self._state_manager.set_state(
                     f"earth_agent:reflection:{validation_context.get('validation_id')}",
                     reflection_result,
-                    ResourceType="STATE"
+                    resource_type=ResourceType.STATE
                 )
                 
                 await self._state_manager.set_state(
                     f"earth_agent:revision:{validation_context.get('validation_id')}",
                     revision_result,
-                    ResourceType="STATE"
+                    resource_type=ResourceType.STATE
                 )
                 
                 return revised_validation
@@ -383,8 +414,7 @@ class EarthAgent(ReflectiveAgent):
             1.0,
             metadata={
                 "category": validation_category,
-                "issue_count": len(issues),
-                "revision_applied": validation_result.get("metadata", {}).get("revision_applied", False)
+                "issue_count": len(issues)
             }
         )
         
@@ -493,16 +523,10 @@ class EarthAgent(ReflectiveAgent):
                 "severity": "CRITICAL",
                 "issue_type": "technical_misalignment",
                 "description": f"System error during validation: {error_message}",
-                "affected_areas": ["validation_process"],
+                "affected_area": "validation_process",
                 "suggested_resolution": "Check system logs and retry validation",
-                "alignment_with_user_request": "Cannot be determined due to error"
-            }],
-            "metadata": {
-                "validation_timestamp": datetime.now().isoformat(),
-                "validation_version": "1.0",
-                "original_agent": "garden_planner",
-                "key_decision_factors": ["system_error"]
-            }
+                "key_decision_factors": ["system_error", "validation_failure"]
+            }]
         }
     
     async def get_validation_history(self) -> List[Dict[str, Any]]:

@@ -983,3 +983,88 @@ class StateManager(BaseManager):
         except Exception as e:
             logger.error(f"Error getting keys by prefix: {e}")
             return []
+    
+    async def delete_state(self, resource_id: str, state_type: str = "STATE") -> bool:
+        """
+        Delete a state entry.
+        
+        Args:
+            resource_id: The ID of the resource
+            state_type: Type of state entry (for compatibility)
+            
+        Returns:
+            True if state was deleted, False if not found
+        """
+        try:
+            # Remove from cache first
+            with self._global_lock:
+                if resource_id in self._states_cache:
+                    del self._states_cache[resource_id]
+            
+            # Delete from backend
+            result = await self._backend.delete_state(resource_id)
+            
+            if result and self._metrics:
+                with self._global_lock:
+                    self._metrics["delete_state_count"] = self._metrics.get("delete_state_count", 0) + 1
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Error deleting state for {resource_id}: {e}", exc_info=True)
+            if self._metrics:
+                with self._global_lock:
+                    self._metrics["backend_errors"] += 1
+            return False
+    
+    async def get_all_states(self) -> List[str]:
+        """
+        Get all state resource IDs.
+        
+        Returns:
+            List of all resource IDs that have state
+        """
+        try:
+            return await self._backend.get_all_resource_ids()
+        except Exception as e:
+            logger.error(f"Error getting all states: {e}", exc_info=True)
+            return []
+    
+    @classmethod
+    def reset_for_testing(cls):
+        """
+        Reset singleton instance for test isolation.
+        
+        WARNING: This should only be used in testing environments.
+        """
+        with cls._lock:
+            if cls._instance is not None:
+                logger.warning("Resetting StateManager singleton for testing")
+                cls._instance = None
+                cls._init_count = 0
+    
+    async def clear_workflow_states(self, pattern: str = "stepwise_phase_one:") -> int:
+        """
+        Clear states matching pattern.
+        
+        Args:
+            pattern: Pattern to match for state deletion
+            
+        Returns:
+            Number of states cleared
+        """
+        try:
+            all_ids = await self.get_all_states()
+            matching_ids = [rid for rid in all_ids if rid.startswith(pattern)]
+            
+            count = 0
+            for resource_id in matching_ids:
+                if await self.delete_state(resource_id):
+                    count += 1
+            
+            logger.info(f"Cleared {count} workflow states matching pattern: {pattern}")
+            return count
+            
+        except Exception as e:
+            logger.error(f"Error clearing workflow states: {e}", exc_info=True)
+            return 0

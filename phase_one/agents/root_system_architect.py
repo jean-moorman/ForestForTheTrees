@@ -7,7 +7,7 @@ from typing import Dict, Any
 from datetime import datetime
 
 from resources import EventQueue, StateManager, AgentContextManager, CacheManager, MetricsManager, ErrorHandler
-from resources.monitoring import MemoryMonitor, MemoryThresholds, HealthTracker, CircuitOpenError
+from resources.monitoring import MemoryMonitor, MemoryThresholds, HealthTracker
 
 from phase_one.agents.base import ReflectiveAgent
 from phase_one.models.enums import DevelopmentState
@@ -32,21 +32,13 @@ class RootSystemArchitectAgent(ReflectiveAgent):
         
         # Define prompt configuration
         prompt_config = AgentPromptConfig(
-            system_prompt_base_path="FFTT_system_prompts/phase_one/root_system_architect_agent",
+            system_prompt_base_path="FFTT_system_prompts/phase_one/garden_root_system_agent",
             reflection_prompt_name="core_data_flow_reflection_prompt",
             refinement_prompt_name="core_data_flow_refinement_prompt",
             initial_prompt_name="initial_core_data_flow_prompt"
         )
         
-        # Define circuit breakers
-        circuit_breakers = [
-            CircuitBreakerDefinition(
-                name="design",
-                failure_threshold=3,
-                recovery_timeout=45,   # Longer timeout for complex design work
-                failure_window=180     # Consider failures over longer period
-            )
-        ]
+        # Circuit breaker definitions removed - protection now at API level
         
         # Initialize base class with configuration
         super().__init__(
@@ -54,7 +46,6 @@ class RootSystemArchitectAgent(ReflectiveAgent):
             event_queue, state_manager, context_manager, cache_manager, metrics_manager, error_handler, 
             memory_monitor,
             prompt_config,
-            circuit_breakers,
             health_tracker
         )
         
@@ -98,31 +89,29 @@ class RootSystemArchitectAgent(ReflectiveAgent):
             try:
                 self.development_state = DevelopmentState.DESIGNING
                 
-                initial_design = await self.get_circuit_breaker("design").execute(
-                    lambda: self.process_with_validation(
-                        conversation=f"""Design data architecture based on:
-                        Garden planner: {garden_planner_output}
-                        Environment analysis: {environment_analysis_output}""",
-                        system_prompt_info=(self._prompt_config.system_prompt_base_path, 
-                                          self._prompt_config.initial_prompt_name)
-                    )
+                # Direct processing - circuit breaker protection now at API level
+                initial_design = await self.process_with_validation(
+                    conversation=f"""Design data architecture based on:
+                    Garden planner: {garden_planner_output}
+                    Environment analysis: {environment_analysis_output}""",
+                    system_prompt_info=(self._prompt_config.system_prompt_base_path, 
+                                      self._prompt_config.initial_prompt_name)
                 )
-            except CircuitOpenError:
-                logger.warning(f"Design circuit open for agent {self.interface_id}, processing rejected")
+            except Exception as e:
+                logger.warning(f"Design processing error for agent {self.interface_id}: {str(e)}")
                 self.development_state = DevelopmentState.ERROR
                 
                 await self._report_agent_health(
                     custom_status="CRITICAL",
-                    description="Design rejected due to circuit breaker open",
+                    description=f"Design processing error: {str(e)}",
                     metadata={
                         "state": "ERROR",
-                        "circuit": "design_circuit",
-                        "circuit_state": "OPEN"
+                        "error": str(e)
                     }
                 )
                 
                 return {
-                    "error": "Design operation rejected due to circuit breaker open",
+                    "error": f"Design operation failed: {str(e)}",
                     "status": "failure",
                     "agent_id": self.interface_id,
                     "timestamp": datetime.now().isoformat()
@@ -138,8 +127,14 @@ class RootSystemArchitectAgent(ReflectiveAgent):
                 circuit_name="design"
             )
             
-            # Check validation status
-            if not reflection_result["reflection_results"]["validation_status"]["passed"]:
+            # Check validation status (handle both error and success cases)
+            reflection_data = reflection_result.get("reflection_results", {})
+            validation_status = reflection_data.get("validation_status", {})
+            
+            # If there's an explicit validation failure or error status
+            if (validation_status.get("passed") is False or 
+                reflection_result.get("status") == "failure" or
+                "error" in reflection_result):
                 self.development_state = DevelopmentState.REFINING
                 
                 await self._report_agent_health(

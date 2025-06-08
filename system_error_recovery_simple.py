@@ -312,6 +312,12 @@ class SystemErrorRecoverySimple:
                         
                 return True
                 
+            elif strategy == "use_existing":
+                # Use existing resource/context - no cleanup needed
+                # This strategy acknowledges the existing state and continues
+                logger.debug(f"Using existing resource for component {component_id}")
+                return True
+                
             elif strategy == "manual_intervention_required":
                 # Emit alert event
                 if self._event_queue:

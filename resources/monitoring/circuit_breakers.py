@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 
 from resources.common import CircuitBreakerConfig, HealthStatus, ResourceType
 from resources.errors import ResourceError, ResourceExhaustionError, ResourceTimeoutError
-from resources.events import ResourceEventTypes, EventQueue, EventLoopManager
+from resources.events import ResourceEventTypes, EventQueue
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +28,33 @@ class CircuitState(Enum):
 class CircuitOpenError(Exception):
     """Raised when circuit is open"""
     pass
+
+class CircuitBreakerPlaceholder:
+    """Placeholder for circuit breakers during bulk creation to prevent blocking."""
+    def __init__(self, name: str, config: CircuitBreakerConfig):
+        self.name = name
+        self.config = config
+        self.state = CircuitState.CLOSED
+        self._is_placeholder = True
+        # Add attributes to match CircuitBreaker interface for monitoring compatibility
+        self._lock = threading.RLock()
+        self.failure_count = 0
+        self.last_failure_time: Optional[datetime] = None
+        self.last_state_change = datetime.now()
+        self.half_open_successes = 0
+        self.active_half_open_calls = 0
+        
+    async def execute(self, operation: Callable[[], Awaitable[Any]]) -> Any:
+        """Execute operation immediately for placeholders (no protection)."""
+        return await operation()
+        
+    async def trip(self, reason: str = "Manual trip") -> bool:
+        """No-op for placeholders."""
+        return False
+        
+    async def reset(self) -> bool:
+        """No-op for placeholders."""
+        return False
 
 class CircuitBreaker:
     """Implementation of the circuit breaker pattern with state change notification support"""
@@ -149,9 +176,9 @@ class CircuitBreaker:
             return result
             
         except Exception as e:
-            # For test cases, we also handle ValueError
-            if isinstance(e, self.PROTECTED_EXCEPTIONS) or isinstance(e, ValueError):
-                await self._handle_failure(e)
+            # Handle failures for tracking purposes
+            # Include all exceptions for comprehensive circuit breaking behavior
+            await self._handle_failure(e)
             raise
             
         finally:
@@ -435,6 +462,18 @@ class CircuitBreakerRegistry:
                 self._running = False
                 self._check_interval = 30.0  # seconds
                 
+                # Circuit breaker creation tracking for aggregated logging
+                self._creation_count = 0
+                self._last_summary_count = 0
+                self._creation_batch_size = 25  # Log summary every N creations (reduced frequency)
+                
+                # Bulk creation optimization
+                self._creation_queue = []
+                self._bulk_creation_task = None
+                self._bulk_creation_threshold = 10  # Process in batches of 10
+                self._creation_lock = threading.RLock()  # Separate lock for creation queue
+                self._bulk_creation_mode = False  # Flag to indicate when in bulk creation mode
+                
                 # Circuit breaker relationships
                 self._dependencies = {}  # parent -> [children]
                 self._reverse_dependencies = {}  # child -> [parents]
@@ -446,11 +485,8 @@ class CircuitBreakerRegistry:
                 # Task tracking for cleanup
                 self._tasks = set()
                 
-                # Register with EventLoopManager for proper cleanup
-                try:
-                    EventLoopManager.register_resource("circuit_breaker_registry", self)
-                except Exception as e:
-                    logger.warning(f"Error registering with EventLoopManager: {e}")
+                # Circuit breakers will use background thread for monitoring
+                # No complex event loop registration needed
                 
                 # Attempt to load persisted state in a thread-safe way
                 try:
@@ -479,6 +515,86 @@ class CircuitBreakerRegistry:
         """Register component-specific circuit breaker configuration."""
         with self._lock:
             self._component_configs[component] = config
+    
+    def register(self, name: str, failure_threshold: int = 5, timeout: float = 60.0, recovery_timeout: float = 30.0) -> CircuitBreaker:
+        """Register a new circuit breaker with simple configuration.
+        
+        Args:
+            name: The name of the circuit breaker
+            failure_threshold: Number of failures before circuit opens
+            timeout: Timeout for operations in seconds (note: stored as recovery_timeout)
+            recovery_timeout: Time to wait before attempting recovery
+            
+        Returns:
+            CircuitBreaker: The created circuit breaker instance
+        """
+        # Create configuration from parameters (timeout maps to recovery_timeout in config)
+        config = CircuitBreakerConfig(
+            failure_threshold=failure_threshold,
+            recovery_timeout=int(recovery_timeout or timeout)  # Use recovery_timeout if provided, otherwise timeout
+        )
+        
+        # Create circuit breaker instance
+        circuit_breaker = CircuitBreaker(
+            name=name,
+            event_queue=self._event_queue,
+            config=config
+        )
+        
+        # Register it
+        with self._lock:
+            self._circuit_breakers[name] = circuit_breaker
+            
+            # Initialize metadata
+            self._circuit_metadata[name] = {
+                "registered_time": datetime.now().isoformat(),
+                "trip_count": 0,
+                "last_trip": None,
+                "last_reset": None,
+                "component_type": "manual"
+            }
+        
+        logger.info(f"Registered circuit breaker '{name}' with failure_threshold={failure_threshold}, timeout={timeout}s")
+        return circuit_breaker
+    
+    async def call(self, name: str, operation: Callable[[], Awaitable[Any]]) -> Any:
+        """Execute an operation through the named circuit breaker.
+        
+        Args:
+            name: The name of the circuit breaker to use
+            operation: The async operation to execute
+            
+        Returns:
+            The result of the operation
+            
+        Raises:
+            Exception: If the operation fails or circuit is open
+        """
+        with self._lock:
+            if name not in self._circuit_breakers:
+                raise ValueError(f"Circuit breaker '{name}' not found")
+            circuit_breaker = self._circuit_breakers[name]
+        
+        return await circuit_breaker.execute(operation)
+    
+    def get_state(self, name: str) -> str:
+        """Get the current state of the named circuit breaker.
+        
+        Args:
+            name: The name of the circuit breaker
+            
+        Returns:
+            The current state as a string (CLOSED, OPEN, HALF_OPEN)
+            
+        Raises:
+            ValueError: If the circuit breaker is not found
+        """
+        with self._lock:
+            if name not in self._circuit_breakers:
+                raise ValueError(f"Circuit breaker '{name}' not found")
+            circuit_breaker = self._circuit_breakers[name]
+        
+        return circuit_breaker.state.name
     
     async def register_circuit_breaker(self, name: str, circuit_breaker: CircuitBreaker, parent: Optional[str] = None) -> None:
         """Register an existing circuit breaker.
@@ -536,8 +652,8 @@ class CircuitBreakerRegistry:
             # Add our listener
             circuit_breaker.add_state_change_listener(self._handle_circuit_state_change)
         
-        # Register with health tracker if available
-        if self._health_tracker:
+        # Register with health tracker if available (skip during bulk creation)
+        if self._health_tracker and not self._bulk_creation_mode:
             await self._health_tracker.update_health(
                 f"circuit_breaker_{name}",
                 HealthStatus(
@@ -546,6 +662,8 @@ class CircuitBreakerRegistry:
                     description=f"Circuit breaker {name} registered"
                 )
             )
+        elif self._bulk_creation_mode:
+            logger.debug(f"Skipping individual health update for {name} during bulk creation")
         
         logger.info(f"Registered circuit breaker: {name}")
         
@@ -618,14 +736,43 @@ class CircuitBreakerRegistry:
                     
                 if child_circuit and hasattr(child_circuit, 'trip') and callable(child_circuit.trip):
                     try:
-                        # Use the EventLoopManager to safely run the coroutine
-                        from resources.events.utils import ensure_event_loop
-                        from resources.events.loop_management import EventLoopManager
+                        # Use simplified thread-safe coroutine execution
+                        import asyncio
+                        import concurrent.futures
                         
-                        # Run the coroutine in a thread-safe manner
-                        future = EventLoopManager.run_coroutine_threadsafe(
-                            child_circuit.trip(f"Cascading trip from parent {circuit_name}")
-                        )
+                        # Get background loop or create background thread
+                        try:
+                            # Try to get background loop
+                            from resources.events.loop_management import EventLoopManager
+                            background_loop = EventLoopManager.get_background_loop()
+                            
+                            if background_loop and not background_loop.is_closed():
+                                future = asyncio.run_coroutine_threadsafe(
+                                    child_circuit.trip(f"Cascading trip from parent {circuit_name}"),
+                                    background_loop
+                                )
+                            else:
+                                # Fall back to new thread execution
+                                def run_in_thread():
+                                    loop = asyncio.new_event_loop()
+                                    asyncio.set_event_loop(loop)
+                                    return loop.run_until_complete(
+                                        child_circuit.trip(f"Cascading trip from parent {circuit_name}")
+                                    )
+                                
+                                with concurrent.futures.ThreadPoolExecutor() as executor:
+                                    future = executor.submit(run_in_thread)
+                        except Exception:
+                            # Fallback to thread execution
+                            def run_in_thread():
+                                loop = asyncio.new_event_loop()
+                                asyncio.set_event_loop(loop)
+                                return loop.run_until_complete(
+                                    child_circuit.trip(f"Cascading trip from parent {circuit_name}")
+                                )
+                            
+                            with concurrent.futures.ThreadPoolExecutor() as executor:
+                                future = executor.submit(run_in_thread)
                         
                         # Track the future for cleanup in a thread-safe way
                         with self._lock:
@@ -644,7 +791,7 @@ class CircuitBreakerRegistry:
         component: Optional[str] = None,
         config: Optional[CircuitBreakerConfig] = None
     ) -> CircuitBreaker:
-        """Get an existing circuit breaker or create a new one if it doesn't exist.
+        """Get an existing circuit breaker or create a new one with bulk optimization.
         
         Args:
             name: The name of the circuit breaker
@@ -652,12 +799,18 @@ class CircuitBreakerRegistry:
             config: Optional specific config override for this circuit breaker
             
         Returns:
-            CircuitBreaker: The requested circuit breaker instance
+            CircuitBreaker: The requested circuit breaker instance (may be placeholder initially)
         """
         # First check if circuit already exists - thread safe
         with self._lock:
             if name in self._circuit_breakers:
-                return self._circuit_breakers[name]
+                existing = self._circuit_breakers[name]
+                # If it's a placeholder, check if bulk creation completed it
+                if hasattr(existing, '_is_placeholder') and existing._is_placeholder:
+                    # Check again in case bulk creation completed while we were waiting
+                    if name in self._circuit_breakers and not hasattr(self._circuit_breakers[name], '_is_placeholder'):
+                        return self._circuit_breakers[name]
+                return existing
             
             # Determine the configuration to use
             effective_config = config
@@ -665,26 +818,136 @@ class CircuitBreakerRegistry:
                 effective_config = self._component_configs.get(component)
             if effective_config is None:
                 effective_config = self._default_config
-                
-            # Create the circuit breaker
-            circuit = CircuitBreaker(name, self._event_queue, effective_config)
-            self._circuit_breakers[name] = circuit
+        
+        # Add to creation queue for bulk processing
+        with self._creation_lock:
+            # Check if already queued
+            for queued_name, _, _ in self._creation_queue:
+                if queued_name == name:
+                    # Return existing placeholder if already queued
+                    with self._lock:
+                        if name in self._circuit_breakers:
+                            return self._circuit_breakers[name]
             
-            logger.info(f"Created circuit breaker: {name}")
+            # Add to queue
+            self._creation_queue.append((name, component, config))
+            
+            # Create placeholder immediately to prevent blocking
+            placeholder = CircuitBreakerPlaceholder(name, effective_config)
+            with self._lock:
+                self._circuit_breakers[name] = placeholder
+            
+            # Trigger bulk creation if threshold reached
+            if len(self._creation_queue) >= self._bulk_creation_threshold:
+                if not self._bulk_creation_task or self._bulk_creation_task.done():
+                    self._bulk_creation_task = asyncio.create_task(self._process_creation_queue())
         
-        # Actions outside of lock
-        # Register with health tracker if available
-        if self._health_tracker:
-            await self._health_tracker.update_health(
-                f"circuit_breaker_{name}",
-                HealthStatus(
-                    status="HEALTHY",
-                    source=f"circuit_breaker_{name}",
-                    description=f"Circuit breaker {name} initialized"
-                )
-            )
+        return placeholder
+    
+    async def _process_creation_queue(self) -> None:
+        """Process circuit breaker creation queue in bulk to reduce overhead."""
+        queue_copy = []
+        with self._creation_lock:
+            if not self._creation_queue:
+                return
+            queue_copy = list(self._creation_queue)
+            self._creation_queue.clear()
         
-        return circuit
+        if not queue_copy:
+            return
+            
+        # Enable bulk creation mode to skip individual health updates
+        self._bulk_creation_mode = True
+        logger.info(f"Processing bulk circuit breaker creation: {len(queue_copy)} items")
+        
+        # Create circuit breakers in batch without individual health tracker updates
+        created_circuits = []
+        for name, component, config in queue_copy:
+            try:
+                # Determine the configuration to use
+                effective_config = config
+                if effective_config is None and component is not None:
+                    effective_config = self._component_configs.get(component)
+                if effective_config is None:
+                    effective_config = self._default_config
+                
+                # Create the actual circuit breaker
+                circuit = CircuitBreaker(name, self._event_queue, effective_config)
+                created_circuits.append((name, circuit))
+                
+                # Add state change listener
+                if hasattr(circuit, 'add_state_change_listener'):
+                    circuit.add_state_change_listener(self._handle_circuit_state_change)
+                
+            except Exception as e:
+                logger.error(f"Error creating circuit breaker {name}: {e}")
+                continue
+        
+        # Bulk update circuit breakers registry
+        with self._lock:
+            for name, circuit in created_circuits:
+                # Replace placeholder with actual circuit
+                if name in self._circuit_breakers and hasattr(self._circuit_breakers[name], '_is_placeholder'):
+                    self._circuit_breakers[name] = circuit
+                    self._creation_count += 1
+                    
+                    # Initialize metadata for bulk created circuits
+                    if name not in self._circuit_metadata:
+                        self._circuit_metadata[name] = {
+                            "registered_time": datetime.now().isoformat(),
+                            "trip_count": 0,
+                            "last_trip": None,
+                            "last_reset": None,
+                            "component_type": circuit.__class__.__name__,
+                            "bulk_created": True
+                        }
+        
+        # Single bulk health tracker update if available
+        if self._health_tracker and created_circuits:
+            await self._bulk_health_update([name for name, _ in created_circuits])
+        
+        # Disable bulk creation mode
+        self._bulk_creation_mode = False
+        
+        # Log bulk creation summary
+        if created_circuits:
+            logger.info(f"Bulk created {len(created_circuits)} circuit breakers "
+                       f"(total: {self._creation_count})")
+    
+    async def _bulk_health_update(self, circuit_names: List[str]) -> None:
+        """Perform truly bulk health tracker updates with single event emission."""
+        if not self._health_tracker:
+            return
+            
+        try:
+            # Check if health tracker supports batch updates
+            if hasattr(self._health_tracker, 'batch_update_health'):
+                # Create batch update dictionary
+                health_updates = {}
+                for name in circuit_names:
+                    health_updates[f"circuit_breaker_{name}"] = HealthStatus(
+                        status="HEALTHY",
+                        source=f"circuit_breaker_{name}",
+                        description=f"Circuit breaker {name} bulk initialized"
+                    )
+                
+                # Single batch update with one event emission
+                await self._health_tracker.batch_update_health(health_updates)
+                logger.info(f"Bulk health update completed for {len(circuit_names)} circuit breakers (single event)")
+            else:
+                # Fallback to individual updates if batch method not available
+                for name in circuit_names:
+                    await self._health_tracker.update_health(
+                        f"circuit_breaker_{name}",
+                        HealthStatus(
+                            status="HEALTHY",
+                            source=f"circuit_breaker_{name}",
+                            description=f"Circuit breaker {name} bulk initialized"
+                        )
+                    )
+                logger.debug(f"Bulk health update completed for {len(circuit_names)} circuit breakers (individual events)")
+        except Exception as e:
+            logger.error(f"Error during bulk health update: {e}")
     
     async def get_circuit_breaker(self, name: str) -> Optional[CircuitBreaker]:
         """Get an existing circuit breaker by name.
@@ -729,6 +992,23 @@ class CircuitBreakerRegistry:
         
         circuit = await self.get_or_create_circuit_breaker(circuit_name, component, config)
         return await circuit.execute(operation)
+    
+    async def flush_creation_queue(self) -> int:
+        """Force processing of any remaining items in the creation queue.
+        
+        Returns:
+            Number of circuit breakers created
+        """
+        if self._bulk_creation_task and not self._bulk_creation_task.done():
+            await self._bulk_creation_task
+        
+        # Process any remaining items
+        with self._creation_lock:
+            remaining_count = len(self._creation_queue)
+            if remaining_count > 0:
+                await self._process_creation_queue()
+                return remaining_count
+        return 0
     
     async def trip_circuit(self, name: str, reason: str = "Manual trip") -> bool:
         """Manually trip a circuit to OPEN state.
@@ -1228,3 +1508,27 @@ class CircuitBreakerRegistry:
                 status[name] = {"error": str(e)}
                 
         return status
+    
+    def log_creation_summary(self) -> None:
+        """Log final summary of circuit breaker creation."""
+        with self._lock:
+            if self._creation_count > 0:
+                # Log any remaining circuit breakers since last summary
+                remaining_count = self._creation_count - self._last_summary_count
+                if remaining_count > 0:
+                    logger.info(f"Circuit breaker registry: Created {remaining_count} circuit breakers "
+                               f"(total: {self._creation_count})")
+                
+                # Log overall summary
+                logger.info(f"Circuit breaker registry: Total {self._creation_count} circuit breakers created")
+                
+                # List circuit breaker types for summary
+                circuit_types = {}
+                for name in self._circuit_breakers.keys():
+                    # Extract type from name (e.g., "statemanager_123" -> "statemanager")
+                    type_name = name.split('_')[0] if '_' in name else name
+                    circuit_types[type_name] = circuit_types.get(type_name, 0) + 1
+                
+                if circuit_types:
+                    type_summary = ", ".join([f"{t}: {c}" for t, c in circuit_types.items()])
+                    logger.info(f"Circuit breaker types: {type_summary}")

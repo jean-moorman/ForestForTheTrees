@@ -20,6 +20,8 @@ class AgentState(Enum):
     FAILED_VALIDATION = auto()
     COMPLETE = auto()
     ERROR = auto()
+    COORDINATING = auto()
+    CLARIFYING = auto()
 
 
 __all__ = [

@@ -8,29 +8,49 @@ import logging
 import asyncio
 from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime
+from unittest.mock import MagicMock
 
 from resources import EventQueue, StateManager, ResourceType
-
-# Import the real WaterAgentCoordinator or use a mock if import fails
-try:
-    from resources.water_agent import WaterAgentCoordinator as RealWaterAgentCoordinator
-    WaterAgentCoordinator = RealWaterAgentCoordinator
-except ImportError:
-    # Mock WaterAgentCoordinator for testing if the real one is not available
-    class WaterAgentCoordinator:
-        """Mock WaterAgentCoordinator for testing"""
-        def __init__(self, state_manager=None):
-            self.state_manager = state_manager
-            
-        async def coordinate_agents(self, *args, **kwargs):
-            return "Updated first output", "Updated second output", {
-                "status": "completed",
-                "coordination_id": "test_coordination_id"
-            }
 from interfaces.agent.interface import AgentInterface
 
+# Setup logging before using it
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Lazy import to avoid circular dependency issues
+_WaterAgentCoordinator = None
+
+def get_water_agent_coordinator():
+    """Lazy loader for WaterAgentCoordinator to avoid circular imports."""
+    global _WaterAgentCoordinator
+    if _WaterAgentCoordinator is None:
+        try:
+            from resources.water_agent.coordinator import WaterAgentCoordinator
+            _WaterAgentCoordinator = WaterAgentCoordinator
+        except ImportError as e:
+            logger.warning(f"Using fallback WaterAgentCoordinator due to import failure: {e}")
+            # Mock WaterAgentCoordinator for testing if the real one is not available
+            class MockWaterAgentCoordinator:
+                """Mock WaterAgentCoordinator for testing"""
+                def __init__(self, resource_id="water_agent_coordinator", state_manager=None, event_bus=None, agent_interface=None):
+                    self.resource_id = resource_id
+                    self.state_manager = state_manager
+                    self.event_bus = event_bus
+                    self.agent_interface = agent_interface
+                    
+                    # Mock the required attributes
+                    self.misunderstanding_detector = MagicMock()
+                    self.resolution_tracker = MagicMock()
+                    self.response_handler = MagicMock()
+                    self.context_manager = MagicMock()
+                    
+                async def coordinate_agents(self, *args, **kwargs):
+                    return "Updated first output", "Updated second output", {
+                        "status": "completed",
+                        "coordination_id": "test_coordination_id"
+                    }
+            _WaterAgentCoordinator = MockWaterAgentCoordinator
+    return _WaterAgentCoordinator
 
 class SequentialAgentCoordinator:
     """
@@ -61,8 +81,13 @@ class SequentialAgentCoordinator:
         self.max_coordination_attempts = max_coordination_attempts
         self.coordination_timeout = coordination_timeout
         
-        # Create Water Agent coordinator
-        self.water_coordinator = WaterAgentCoordinator(state_manager=state_manager)
+        # Create Water Agent coordinator using lazy loader
+        WaterAgentCoordinatorClass = get_water_agent_coordinator()
+        self.water_coordinator = WaterAgentCoordinatorClass(
+            resource_id="water_agent_coordinator",
+            state_manager=state_manager,
+            event_bus=event_queue
+        )
         
         # Tracking for coordination attempts
         self.current_attempt = 0
@@ -121,7 +146,7 @@ class SequentialAgentCoordinator:
                 "first_agent": first_agent.agent_id,
                 "second_agent": second_agent.agent_id
             },
-            ResourceType=ResourceType.STATE
+            resource_type=ResourceType.STATE
         )
         
         # Emit coordination start event
@@ -164,7 +189,7 @@ class SequentialAgentCoordinator:
                         "result": "no_misunderstandings",
                         "end_time": datetime.now().isoformat()
                     },
-                    ResourceType=ResourceType.STATE
+                    resource_type=ResourceType.STATE
                 )
                 
                 # Emit coordination complete event
@@ -231,7 +256,7 @@ class SequentialAgentCoordinator:
                     "updated_output": updated_first_output != first_agent_output_str,
                     "timestamp": datetime.now().isoformat()
                 },
-                ResourceType=ResourceType.STATE
+                resource_type=ResourceType.STATE
             )
             
             # Final coordination state update
@@ -243,7 +268,7 @@ class SequentialAgentCoordinator:
                     "misunderstandings_count": len(misunderstandings),
                     "end_time": datetime.now().isoformat()
                 },
-                ResourceType=ResourceType.STATE
+                resource_type=ResourceType.STATE
             )
             
             # Emit coordination complete event
@@ -278,7 +303,7 @@ class SequentialAgentCoordinator:
                     "end_time": datetime.now().isoformat(),
                     "error": "Coordination timeout exceeded"
                 },
-                ResourceType=ResourceType.STATE
+                resource_type=ResourceType.STATE
             )
             
             # Emit coordination timeout event
@@ -305,7 +330,7 @@ class SequentialAgentCoordinator:
                     "end_time": datetime.now().isoformat(),
                     "error": str(e)
                 },
-                ResourceType=ResourceType.STATE
+                resource_type=ResourceType.STATE
             )
             
             # Emit coordination error event
@@ -371,7 +396,7 @@ class SequentialAgentCoordinator:
                 "first_agent": first_agent.agent_id,
                 "second_agent": second_agent.agent_id
             },
-            ResourceType=ResourceType.STATE
+            resource_type=ResourceType.STATE
         )
         
         # Emit coordination start event
@@ -414,7 +439,7 @@ class SequentialAgentCoordinator:
                         "result": "no_misunderstandings",
                         "end_time": datetime.now().isoformat()
                     },
-                    ResourceType=ResourceType.STATE
+                    resource_type=ResourceType.STATE
                 )
                 
                 # Emit coordination complete event
@@ -503,7 +528,7 @@ class SequentialAgentCoordinator:
                     "second_output_updated": updated_second_output != second_agent_output_str,
                     "timestamp": datetime.now().isoformat()
                 },
-                ResourceType=ResourceType.STATE
+                resource_type=ResourceType.STATE
             )
             
             # Final coordination state update
@@ -517,7 +542,7 @@ class SequentialAgentCoordinator:
                     "second_output_updated": updated_second_output != second_agent_output_str,
                     "end_time": datetime.now().isoformat()
                 },
-                ResourceType=ResourceType.STATE
+                resource_type=ResourceType.STATE
             )
             
             # Emit coordination complete event
@@ -554,7 +579,7 @@ class SequentialAgentCoordinator:
                     "end_time": datetime.now().isoformat(),
                     "error": "Coordination timeout exceeded"
                 },
-                ResourceType=ResourceType.STATE
+                resource_type=ResourceType.STATE
             )
             
             # Emit coordination timeout event
@@ -584,7 +609,7 @@ class SequentialAgentCoordinator:
                     "end_time": datetime.now().isoformat(),
                     "error": str(e)
                 },
-                ResourceType=ResourceType.STATE
+                resource_type=ResourceType.STATE
             )
             
             # Emit coordination error event
@@ -618,7 +643,7 @@ class SequentialAgentCoordinator:
         prefix = "interactive_coordination" if interactive else "sequential_coordination"
         coordination_state = await self.state_manager.get_state(
             f"{prefix}:{operation_id}",
-            ResourceType=ResourceType.STATE
+            resource_type=ResourceType.STATE
         )
         
         # If no state found, return unknown status
@@ -634,7 +659,7 @@ class SequentialAgentCoordinator:
         for attempt in range(1, coordination_state.get("current_attempt", 0) + 1):
             attempt_state = await self.state_manager.get_state(
                 f"{prefix}:{operation_id}:attempt:{attempt}",
-                ResourceType=ResourceType.STATE
+                resource_type=ResourceType.STATE
             )
             
             if attempt_state:

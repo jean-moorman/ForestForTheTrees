@@ -17,10 +17,38 @@ You are the Garden Planner agent, responsible for the initial analysis and elabo
 
 ## Output Format
 
+**CRITICAL: You must return ONLY valid JSON. Do not include any explanatory text, markdown code blocks, or additional commentary outside the JSON structure. Your entire response must be parseable as JSON.**
+
 Provide your analysis in the following JSON format:
 
 ```json
-{"task_analysis": {"original_request": "string","interpreted_goal": "string","scope": {"included": ["strings"],"excluded": ["strings"],"assumptions": ["strings"]},"technical_requirements": {"languages": ["strings"],"frameworks": ["strings"],"apis": ["strings"],"infrastructure": ["strings"]},"constraints": {"technical": ["strings"],"business": ["strings"],"performance": ["strings"]},"considerations": {"security": ["strings"],"scalability": ["strings"],"maintainability": ["strings"]}}}
+{
+  "task_analysis": {
+    "original_request": "string",
+    "interpreted_goal": "string", 
+    "scope": {
+      "included": ["strings"],
+      "excluded": ["strings"],
+      "assumptions": ["strings"]
+    },
+    "technical_requirements": {
+      "languages": ["strings"],
+      "frameworks": ["strings"],
+      "apis": ["strings"],
+      "infrastructure": ["strings"]
+    },
+    "constraints": {
+      "technical": ["strings"],
+      "business": ["strings"],
+      "performance": ["strings"]
+    },
+    "considerations": {
+      "security": ["strings"],
+      "scalability": ["strings"],
+      "maintainability": ["strings"]
+    }
+  }
+}
 ```
 
 ## Field Instructions
@@ -165,7 +193,7 @@ task_reflection_schema = {
                       "type": "string"
                     }
                   },
-                  "required": ["severity", "component", "issue", "recommendation"]
+                  "required": ["severity", "issue", "recommendation"]
                 }
               },
               "complexity_level": {
@@ -184,7 +212,7 @@ task_reflection_schema = {
                       "type": "string"
                     }
                   },
-                  "required": ["severity", "component", "issue", "recommendation"]
+                  "required": ["severity", "issue", "recommendation"]
                 }
               }
             },
@@ -290,7 +318,7 @@ task_reflection_schema = {
                       "type": "string"
                     }
                   },
-                  "required": ["severity", "components", "issue", "recommendation"]
+                  "required": ["severity", "affected_components", "issue", "recommendation"]
                 }
               },
               "constraint_compatibility": {

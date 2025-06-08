@@ -7,7 +7,7 @@ from datetime import datetime
 
 from resources import EventQueue, StateManager
 from dependency import DependencyValidator
-from interface import AgentInterface
+from interfaces import AgentInterface
 from phase_one.models.enums import PhaseValidationState
 
 logging.basicConfig(level=logging.INFO)

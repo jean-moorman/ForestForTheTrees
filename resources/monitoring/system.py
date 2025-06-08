@@ -32,25 +32,51 @@ class SystemMonitorConfig:
 class SystemMonitor:
     """Coordinates CircuitBreaker, MemoryMonitor, and HealthTracker components"""
     
+    # Singleton pattern to prevent multiple SystemMonitor instances
+    _instance = None
+    _instance_lock = threading.RLock()
+    _initialized = False
+    
+    def __new__(cls, 
+                event_queue: EventQueue,
+                memory_monitor: MemoryMonitor,
+                health_tracker: HealthTracker,
+                config: Optional[SystemMonitorConfig] = None):
+        """Singleton implementation to prevent multiple SystemMonitor instances"""
+        with cls._instance_lock:
+            if cls._instance is None:
+                cls._instance = super(SystemMonitor, cls).__new__(cls)
+            return cls._instance
+    
     def __init__(self, 
                  event_queue: EventQueue,
                  memory_monitor: MemoryMonitor,
                  health_tracker: HealthTracker,
                  config: Optional[SystemMonitorConfig] = None):
-        self.event_queue = event_queue
-        self.memory_monitor = memory_monitor
-        self.health_tracker = health_tracker
-        self.config = config or SystemMonitorConfig()
-        
-        # Use CircuitBreakerRegistry for managing circuit breakers
-        self._circuit_registry = CircuitBreakerRegistry(event_queue, health_tracker)
-        self._circuit_breakers: Dict[str, 'CircuitBreaker'] = {}  # For backwards compatibility
-        self._monitoring_task: Optional[asyncio.Task] = None
-        self._running = False
-        self._metrics = ReliabilityMetrics(self.config.metric_window)
-        self._shutdown = False  # Initialize _shutdown flag
-        self._tasks: List[asyncio.Task] = []  # Initialize tasks list
-        self._lock = threading.RLock()  # Add thread-safe lock
+        # Singleton initialization - only initialize once
+        with self._instance_lock:
+            if self._initialized:
+                logger.debug("SystemMonitor singleton already initialized, skipping re-initialization")
+                return
+                
+            self.event_queue = event_queue
+            self.memory_monitor = memory_monitor
+            self.health_tracker = health_tracker
+            self.config = config or SystemMonitorConfig()
+            
+            # Use CircuitBreakerRegistry for managing circuit breakers
+            self._circuit_registry = CircuitBreakerRegistry(event_queue, health_tracker)
+            self._circuit_breakers: Dict[str, 'CircuitBreaker'] = {}  # For backwards compatibility
+            self._monitoring_task: Optional[asyncio.Task] = None
+            self._running = False
+            self._metrics = ReliabilityMetrics(self.config.metric_window)
+            self._shutdown = False  # Initialize _shutdown flag
+            self._tasks: List[asyncio.Task] = []  # Initialize tasks list
+            self._lock = threading.RLock()  # Add thread-safe lock
+            
+            # Mark as initialized
+            self._initialized = True
+            logger.debug("SystemMonitor singleton initialized")
 
     async def register_circuit_breaker(self, name: str, circuit_breaker: 'CircuitBreaker') -> None:
         """Register a circuit breaker for monitoring
@@ -120,38 +146,48 @@ class SystemMonitor:
                                  f"failures as of {breaker.last_failure_time}")
 
                 # Update health with metrics
-                await self.health_tracker.update_health(
-                    f"circuit_breaker_{name}",
-                    HealthStatus(
-                        status=status,
-                        source=f"circuit_breaker_{name}",
-                        description=description,
-                        metadata={
-                            "state": breaker.state.name,
-                            "failure_count": breaker.failure_count,
-                            "last_failure": breaker.last_failure_time.isoformat() 
-                                          if breaker.last_failure_time else None,
-                            "error_density": self._metrics.get_error_density(name),
-                            "time_in_state": duration,
-                            "state_durations": self._metrics.get_state_durations(name),
-                            "avg_recovery_time": self._metrics.get_avg_recovery_time(name)
-                        }
+                if self.health_tracker is not None:
+                    await self.health_tracker.update_health(
+                        f"circuit_breaker_{name}",
+                        HealthStatus(
+                            status=status,
+                            source=f"circuit_breaker_{name}",
+                            description=description,
+                            metadata={
+                                "state": breaker.state.name,
+                                "failure_count": breaker.failure_count,
+                                "last_failure": breaker.last_failure_time.isoformat() 
+                                              if breaker.last_failure_time else None,
+                                "error_density": self._metrics.get_error_density(name),
+                                "time_in_state": duration,
+                                "state_durations": self._metrics.get_state_durations(name),
+                                "avg_recovery_time": self._metrics.get_avg_recovery_time(name)
+                            }
+                        )
                     )
-                )
             except Exception as e:
                 logger.error(f"Error checking circuit breaker {name}: {e}")
 
     async def start(self) -> None:
-        """Start system monitoring"""
+        """Start system monitoring - singleton pattern prevents multiple starts"""
         with self._lock:
             if self._running:
+                logger.debug("SystemMonitor singleton already running, ignoring duplicate start request")
+                return
+            
+            # Check if monitoring task is already running
+            if self._monitoring_task and not self._monitoring_task.done():
+                logger.debug("SystemMonitor task already exists and running, ignoring duplicate start")
                 return
 
             self._running = True
             
-        loop = asyncio.get_event_loop()
+        # Use event loop utilities to ensure proper event loop handling
+        from resources.events.utils import ensure_event_loop
+        loop = ensure_event_loop()
+        
         self._monitoring_task = loop.create_task(self._monitoring_loop())
-        logger.info("System monitoring started")
+        logger.info("SystemMonitor singleton started")
 
     async def stop(self) -> None:
         """Stop system monitoring"""
@@ -188,12 +224,12 @@ class SystemMonitor:
                 logger.error(f"Error stopping circuit breaker registry: {e}")
 
         # Stop memory monitor
-        if hasattr(self, 'memory_monitor'):
+        if self.memory_monitor is not None:
             logger.info("Stopping memory monitor")
             await self.memory_monitor.stop()
         
         # Stop health tracker
-        if hasattr(self, 'health_tracker'):
+        if self.health_tracker is not None:
             logger.info("Stopping health tracker")
             await self.health_tracker.stop()
         
@@ -256,25 +292,27 @@ class SystemMonitor:
             memory_status = await self._get_memory_status()
             
             # Update health tracker with memory status
-            await self.health_tracker.update_health(
-                "tracked_resource_memory",
-                HealthStatus(
-                    status="CRITICAL" if memory_status > self.config.memory_check_threshold else "HEALTHY",
-                    source="memory_monitor",
-                    description=f"Memory usage at {memory_status:.1%}",
-                    metadata={"usage_percentage": memory_status}
+            if self.health_tracker is not None:
+                await self.health_tracker.update_health(
+                    "tracked_resource_memory",
+                    HealthStatus(
+                        status="CRITICAL" if memory_status > self.config.memory_check_threshold else "HEALTHY",
+                        source="memory_monitor",
+                        description=f"Memory usage at {memory_status:.1%}",
+                        metadata={"usage_percentage": memory_status}
+                    )
                 )
-            )
         except Exception as e:
             logger.error(f"Error checking memory status: {e}")
-            await self.health_tracker.update_health(
-                "tracked_resource_memory",
-                HealthStatus(
-                    status="ERROR",
-                    source="memory_monitor",
-                    description=f"Failed to check memory: {str(e)}"
+            if self.health_tracker is not None:
+                await self.health_tracker.update_health(
+                    "tracked_resource_memory",
+                    HealthStatus(
+                        status="ERROR",
+                        source="memory_monitor",
+                        description=f"Failed to check memory: {str(e)}"
+                    )
                 )
-            )
 
     async def _update_system_health(self) -> None:
         """Update overall system health status"""
@@ -331,9 +369,13 @@ class SystemMonitor:
                         logger.error(f"Error getting system memory: {e}")
                 
                 # Get thread-safe access to memory monitor data
-                with self.memory_monitor._lock:
-                    resource_count = len(self.memory_monitor._resource_sizes)
-                    resource_total = sum(self.memory_monitor._resource_sizes.values())
+                if self.memory_monitor is not None:
+                    with self.memory_monitor._lock:
+                        resource_count = len(self.memory_monitor._resource_sizes)
+                        resource_total = sum(self.memory_monitor._resource_sizes.values())
+                else:
+                    resource_count = 0
+                    resource_total = 0
                 
                 metrics["memory"] = {
                     "tracked_usage": memory_usage,
@@ -395,7 +437,8 @@ class SystemMonitor:
             
             # Collect resource metrics if available
             try:
-                if hasattr(self, 'memory_monitor') and hasattr(self.memory_monitor, '_resource_sizes'):
+                if (self.memory_monitor is not None and 
+                    hasattr(self.memory_monitor, '_resource_sizes')):
                     # Get thread-safe copy of resource sizes
                     with self.memory_monitor._lock:
                         resource_sizes = dict(self.memory_monitor._resource_sizes)
@@ -499,6 +542,10 @@ class SystemMonitor:
                 or None if an error occurs
         """
         try:
+            # Check if memory monitor is available
+            if self.memory_monitor is None:
+                return None
+                
             # Get thread-safe access to memory monitor data
             with self.memory_monitor._lock:
                 # Calculate total of tracked application resources

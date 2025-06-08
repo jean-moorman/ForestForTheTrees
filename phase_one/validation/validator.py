@@ -2,21 +2,17 @@
 Validation module for phase one deliverables.
 """
 import logging
-from typing import Dict, Any, List, Protocol
+from typing import Dict, Any, List
 from datetime import datetime
 
 from resources import EventQueue, StateManager
 from dependency import DependencyValidator
-from interface import AgentInterface
+from interfaces import AgentInterface
 from phase_one.models.enums import PhaseValidationState
+from interfaces.phase_interfaces import PhaseZeroInterface
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-class PhaseZeroInterface(Protocol):
-    """Interface for interacting with Phase Zero agents"""
-    async def process_system_metrics(self, metrics: Dict[str, Any]) -> Dict[str, Any]:
-        pass
         
 class PhaseOneValidator:
     """

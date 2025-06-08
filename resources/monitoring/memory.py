@@ -47,9 +47,24 @@ class MemoryMonitor:
                 self._component_thresholds: Dict[str, MemoryThresholds] = {}
                 self._monitoring_task: Optional[asyncio.Task] = None
                 self._running = False
-                self._check_interval = 60
+                self._check_interval = 120  # Reduced frequency: check every 2 minutes instead of 1
                 # Replace asyncio.Lock with thread-safe RLock
                 self._lock = threading.RLock()
+                
+                # Alert batching to reduce event queue pressure
+                self._pending_alerts: Set[str] = set()
+                self._last_alert_batch = datetime.now()
+                
+                # Adaptive monitoring configuration
+                self._adaptive_monitoring = True
+                self._base_check_interval = 300  # 5 minutes base interval
+                self._activity_threshold = 10    # operations per minute to trigger faster monitoring
+                self._last_activity_count = 0
+                self._operation_count = 0
+                self._last_activity_check = datetime.now()
+                
+                # Monitoring mode tracking
+                self._current_monitoring_mode = "normal"  # "low", "normal", "high"
                 
                 # Mark as initialized at the end after everything is set up
                 self._initialized = True
@@ -62,8 +77,38 @@ class MemoryMonitor:
         with self._lock:
             self._component_thresholds[component_id] = thresholds or self._thresholds
     
+    def _calculate_activity_level(self) -> float:
+        """Calculate current system activity level for adaptive monitoring."""
+        now = datetime.now()
+        
+        with self._lock:
+            time_elapsed = (now - self._last_activity_check).total_seconds()
+            
+            # For very short time periods, use a minimum to prevent huge numbers
+            if time_elapsed < 0.1:
+                time_elapsed = 0.1
+            
+            # Calculate operations per minute
+            operations_per_minute = (self._operation_count * 60) / time_elapsed
+                
+            # Reset counters periodically or when we have a substantial reading
+            if time_elapsed >= 60 or self._operation_count > 20:  # Reset when we have enough data
+                self._last_activity_count = operations_per_minute
+                self._operation_count = 0
+                self._last_activity_check = now
+            
+            return operations_per_minute
+    
+    def _update_operation_count(self):
+        """Increment operation count for activity tracking."""
+        with self._lock:
+            self._operation_count += 1
+    
     async def track_resource(self, resource_id: str, size_mb: float, component_id: str):
-        """Track resource memory with component context"""
+        """Track resource memory with component context and activity tracking"""
+        # Update operation count for adaptive monitoring
+        self._update_operation_count()
+        
         # Get a local copy with lock to minimize lock time
         with self._lock:
             # Ensure event queue is processing events
@@ -76,12 +121,15 @@ class MemoryMonitor:
             # Make thread-safe copy of component thresholds
             component_thresholds = self._component_thresholds.get(component_id, self._thresholds)
         
-        # Check component-specific thresholds (outside lock)
+        # Check component-specific thresholds (outside lock) - use batching
         if size_mb > component_thresholds.per_resource_max_mb:
-            await self._emit_resource_alert(resource_id, size_mb, component_id)
+            await self._queue_resource_alert(resource_id, size_mb, component_id)
             
-        # Track component total memory
-        await self._check_component_memory(component_id)
+        # Track component total memory - but only periodically to reduce overhead
+        now = datetime.now()
+        if (now - self._last_alert_batch).total_seconds() > 30:  # Check every 30 seconds
+            await self._check_component_memory(component_id)
+            await self._process_alert_batch()
     
     async def untrack_resource(self, resource_id: str, component_id: str = None):
         """Async wrapper for remove_resource"""
@@ -182,8 +230,8 @@ class MemoryMonitor:
 
     @with_memory_checking
     async def _monitor_memory(self):
-        """Monitor overall system memory usage periodically"""
-        logger.info(f"Memory monitoring started with {self._check_interval}s interval")
+        """Monitor overall system memory usage with adaptive intervals based on activity"""
+        logger.info(f"Adaptive memory monitoring started (base interval: {self._base_check_interval}s)")
         
         # Allow direct testing by running the check once immediately
         await self._check_memory_once()
@@ -200,10 +248,64 @@ class MemoryMonitor:
                 logger.error(f"Error in memory monitoring: {str(e)}")
                 # Continue monitoring despite errors
                 
+            # Calculate adaptive interval based on activity level
+            if self._adaptive_monitoring:
+                check_interval = self._get_adaptive_check_interval()
+            else:
+                check_interval = self._check_interval
+                
             # Wait for next check interval
-            await asyncio.sleep(self._check_interval)
+            await asyncio.sleep(check_interval)
             
         logger.info("Memory monitoring stopped")
+    
+    def _get_adaptive_check_interval(self) -> float:
+        """Calculate adaptive check interval based on system activity."""
+        current_activity = self._calculate_activity_level()
+        
+        # Determine monitoring mode and interval
+        if current_activity > self._activity_threshold:
+            # High activity - monitor more frequently
+            interval = 120  # 2 minutes
+            mode = "high"
+        elif current_activity > 5:
+            # Medium activity - normal monitoring
+            interval = 240  # 4 minutes  
+            mode = "normal"
+        else:
+            # Low activity - monitor less frequently
+            interval = self._base_check_interval  # 5 minutes
+            mode = "low"
+        
+        # Log mode changes
+        if mode != self._current_monitoring_mode:
+            logger.info(f"Memory monitoring mode changed: {self._current_monitoring_mode} → {mode} "
+                       f"(activity: {current_activity:.1f} ops/min, interval: {interval}s)")
+            self._current_monitoring_mode = mode
+            
+        return interval
+    
+    def set_adaptive_monitoring(self, enabled: bool) -> None:
+        """Enable or disable adaptive monitoring."""
+        with self._lock:
+            self._adaptive_monitoring = enabled
+            mode = "enabled" if enabled else "disabled"
+            logger.info(f"Adaptive memory monitoring {mode}")
+    
+    def get_monitoring_stats(self) -> Dict[str, Any]:
+        """Get current monitoring statistics."""
+        with self._lock:
+            current_activity = self._calculate_activity_level()
+            return {
+                "adaptive_monitoring": self._adaptive_monitoring,
+                "current_mode": self._current_monitoring_mode,
+                "current_activity": current_activity,
+                "activity_threshold": self._activity_threshold,
+                "base_interval": self._base_check_interval,
+                "operation_count": self._operation_count,
+                "resource_count": len(self._resource_sizes),
+                "component_count": len(self._component_thresholds)
+            }
 
     async def _emit_component_alert(self, component_id: str, total_mb: float, level: str):
         """Emit component-specific memory alert using standardized method"""
@@ -291,3 +393,28 @@ class MemoryMonitor:
         logger.warning(
             f"Resource {resource_id} memory exceeds threshold: {size_mb:.1f}MB > {component_thresholds.per_resource_max_mb:.1f}MB"
         )
+    
+    async def _queue_resource_alert(self, resource_id: str, size_mb: float, component_id: str):
+        """Queue a resource alert for batched processing."""
+        alert_key = f"{resource_id}:{component_id}"
+        with self._lock:
+            self._pending_alerts.add(alert_key)
+    
+    async def _process_alert_batch(self):
+        """Process all pending alerts in a batch."""
+        alerts_to_process = []
+        with self._lock:
+            if self._pending_alerts:
+                alerts_to_process = list(self._pending_alerts)
+                self._pending_alerts.clear()
+                self._last_alert_batch = datetime.now()
+        
+        # Process alerts outside the lock
+        for alert_key in alerts_to_process:
+            try:
+                resource_id, component_id = alert_key.split(':', 1)
+                size_mb = self._resource_sizes.get(resource_id, 0)
+                if size_mb > 0:  # Only process if resource still exists
+                    await self._emit_resource_alert(resource_id, size_mb, component_id)
+            except Exception as e:
+                logger.warning(f"Error processing batched alert {alert_key}: {e}")

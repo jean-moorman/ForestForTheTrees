@@ -8,6 +8,8 @@ from concurrent.futures import ThreadPoolExecutor
 import asyncio
 from dataclasses import dataclass
 
+from resources.circuit_breakers_simple import CircuitBreakerSimple, CircuitOpenError, CircuitBreakerConfig
+
 class AnthropicAPI:
     def __init__(self, model: str = "claude-3-5-sonnet-20241022", key: str="", system_prompt_path: Optional[Tuple[str, Path]] = None):
         self.system_prompt_path = system_prompt_path
@@ -23,6 +25,16 @@ class AnthropicAPI:
         self.client = anthropic.Anthropic(api_key=key)
         self.model = model
         self._executor = ThreadPoolExecutor(max_workers=1)
+        
+        # Single centralized circuit breaker for ALL LLM API calls
+        self._llm_circuit_breaker = CircuitBreakerSimple(
+            "llm_api_calls",
+            CircuitBreakerConfig(
+                failure_threshold=3,    # Trip after 3 failures
+                recovery_timeout=60,    # Wait 60 seconds before testing
+                failure_window=120      # Reset failure count after 2 minutes
+            )
+        )
 
     async def __aenter__(self):
         return self
@@ -87,45 +99,54 @@ class AnthropicAPI:
         current_phase: Optional[str] = None,
         max_tokens: Optional[int] = None
     ) -> str:
-        """Make the API call with properly formatted system messages"""
-        logging.debug("Making API call with:")
-        logging.debug(f"Model: {self.model}")
-        logging.debug(f"Max tokens: {max_tokens}")
-        logging.debug(f"System prompt directory: {self.system_prompt_path}")
+        """Make the API call with properly formatted system messages and circuit breaker protection"""
+        async def _make_llm_call():
+            logging.debug("Making API call with:")
+            logging.debug(f"Model: {self.model}")
+            logging.debug(f"Max tokens: {max_tokens}")
+            logging.debug(f"System prompt directory: {self.system_prompt_path}")
 
-        messages = [
-            {"role": "user", "content": conversation}
-        ]
-        system = []
-        system_prompt = self.get_prompt_from_dir(system_prompt_info[0], system_prompt_info[1])
-        if system_prompt:
-            system.append({
-                "type": "text",
-                "text": system_prompt,
-                "cache_control": {"type": "ephemeral"}
-            })
+            messages = [
+                {"role": "user", "content": conversation}
+            ]
+            system = []
+            system_prompt = self.get_prompt_from_dir(system_prompt_info[0], system_prompt_info[1])
+            if system_prompt:
+                system.append({
+                    "type": "text",
+                    "text": system_prompt,
+                    "cache_control": {"type": "ephemeral"}
+                })
+                
+                # Add schema as a separate system message
+                system.append({
+                    "type": "text",
+                    "text": json.dumps(schema),
+                    "cache_control": {"type": "ephemeral"}
+                })
             
-            # Add schema as a separate system message
-            system.append({
-                "type": "text",
-                "text": json.dumps(schema),
-                "cache_control": {"type": "ephemeral"}
-            })
-        
-        # Run the synchronous API call in a thread to avoid blocking the event loop
-        response = await asyncio.to_thread(
-            self.client.messages.create,
-            model=self.model,
-            max_tokens=max_tokens,
-            messages=messages,
-            system=system
-        )
-        
-        if not response.content:
-            raise ValueError("Empty response from API")
+            # Run the synchronous API call in a thread to avoid blocking the event loop
+            response = await asyncio.to_thread(
+                self.client.messages.create,
+                model=self.model,
+                max_tokens=max_tokens,
+                messages=messages,
+                system=system
+            )
             
-        logging.debug("API call successful")
-        return response.content[0].text
+            if not response.content:
+                raise ValueError("Empty response from API")
+                
+            logging.debug("API call successful")
+            return response.content[0].text
+        
+        # Protect the LLM call with circuit breaker
+        try:
+            return await self._llm_circuit_breaker.execute(_make_llm_call)
+        except CircuitOpenError:
+            error_msg = "LLM API circuit breaker is open - too many recent failures"
+            logging.warning(error_msg)
+            raise RuntimeError(error_msg)
     
     def get_prompt_from_dir(self, system_prompt_dir: str, prompt_name: str = "system_prompt") -> Optional[str]:
         """

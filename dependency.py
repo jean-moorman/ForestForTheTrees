@@ -762,7 +762,9 @@ class DependencyInterface(BaseInterface):
 
 def register_dependency_metrics(dependency_interface: DependencyInterface) -> None:
     """Register monitoring metrics for dependency interface."""
-    resource_manager = StateManager("main_interface")
+    from resources.events import EventQueue
+    event_queue = EventQueue()
+    resource_manager = StateManager(event_queue)
     
     # Register dependency graph metrics
     for dependent, dependencies in dependency_interface._dependency_graph.items():
@@ -793,7 +795,9 @@ def monitor_dependency_changes(dependency_interface: DependencyInterface) -> Non
             logger.info(f"Dependency change event: {data}")
             register_dependency_metrics(dependency_interface)
     
-    resource_manager = StateManager("main_interface")
+    from resources.events import EventQueue
+    event_queue = EventQueue()
+    resource_manager = StateManager(event_queue)
     resource_manager.subscribe_to_events("dependency_added", dependency_change_callback)
     resource_manager.subscribe_to_events("dependency_removed", dependency_change_callback)
     resource_manager.subscribe_to_events("dependency_type_changed", dependency_change_callback)

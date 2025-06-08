@@ -1,8 +1,8 @@
-from phase_four.agents.code_generation import CodeGenerationAgent
-from phase_four.agents.static_compilation import StaticCompilationAgent
-from phase_four.agents.debug import CompilationDebugAgent
-from phase_four.agents.analysis import CompilationAnalysisAgent
-from phase_four.agents.refinement import CompilationRefinementAgent
+from .code_generation import CodeGenerationAgent
+from .static_compilation import StaticCompilationAgent
+from .debug import CompilationDebugAgent
+from .analysis import CompilationAnalysisAgent
+from .refinement import CompilationRefinementAgent
 
 __all__ = [
     'CodeGenerationAgent',

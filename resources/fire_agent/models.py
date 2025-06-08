@@ -45,20 +45,38 @@ class DecompositionStrategy(Enum):
 class ComplexityThreshold:
     """Configuration for complexity thresholds."""
     low_threshold: float = 30.0
-    medium_threshold: float = 60.0
-    high_threshold: float = 80.0
-    critical_threshold: float = 95.0
+    medium_threshold: float = 55.0  # Lowered to catch more cases as medium
+    high_threshold: float = 70.0   # Lowered to catch more cases as high
+    critical_threshold: float = 90.0
     
-    def get_level(self, score: float) -> ComplexityLevel:
-        """Get complexity level for a given score."""
-        if score >= self.critical_threshold:
-            return ComplexityLevel.CRITICAL
-        elif score >= self.high_threshold:
-            return ComplexityLevel.HIGH
-        elif score >= self.medium_threshold:
-            return ComplexityLevel.MEDIUM
+    # Context-specific thresholds
+    feature_low_threshold: float = 25.0
+    feature_medium_threshold: float = 45.0  # More sensitive for features
+    feature_high_threshold: float = 60.0    # Lower threshold for feature complexity
+    feature_critical_threshold: float = 75.0
+    
+    def get_level(self, score: float, context: str = "general") -> ComplexityLevel:
+        """Get complexity level for a given score with context-aware thresholds."""
+        if context == "phase_three_feature":
+            # Use feature-specific thresholds
+            if score >= self.feature_critical_threshold:
+                return ComplexityLevel.CRITICAL
+            elif score >= self.feature_high_threshold:
+                return ComplexityLevel.HIGH
+            elif score >= self.feature_medium_threshold:
+                return ComplexityLevel.MEDIUM
+            else:
+                return ComplexityLevel.LOW
         else:
-            return ComplexityLevel.LOW
+            # Use general thresholds for guidelines and components
+            if score >= self.critical_threshold:
+                return ComplexityLevel.CRITICAL
+            elif score >= self.high_threshold:
+                return ComplexityLevel.HIGH
+            elif score >= self.medium_threshold:
+                return ComplexityLevel.MEDIUM
+            else:
+                return ComplexityLevel.LOW
 
 
 @dataclass

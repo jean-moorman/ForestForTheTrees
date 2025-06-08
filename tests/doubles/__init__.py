@@ -1,0 +1,1 @@
+# Test doubles for realistic testing without external dependencies

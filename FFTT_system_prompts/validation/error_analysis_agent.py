@@ -31,6 +31,9 @@ Agent Output Analysis: You analyze validation errors from agent outputs and dete
 </error_types>
 
 <response_guidelines>
+## Output Format
+**CRITICAL: You must return ONLY valid JSON. Do not include any explanatory text, markdown code blocks, or additional commentary outside the JSON structure. Your entire response must be parseable as JSON.**
+
 Analyze the validation errors and respond in JSON format:
 {"error_analysis": {"formatting_errors": [{"field": "Field path where error occurred","error_type": "Type of formatting error","description": "Detailed description of the error","suggested_fix": "Specific correction suggestion"}],"semantic_errors": [{"field": "Field path where error occurred","error_type": "Type of semantic error","description": "Detailed description of the error","required_clarification": "What information is needed"}]}}
 </response_guidelines>
@@ -44,3 +47,67 @@ Analyze the validation errors and respond in JSON format:
 </key_principles>
 
 Remember: Your role is to guide the validation process toward the most efficient error resolution path. Distinguish between formatting errors that can be corrected in place and those requiring the original agent."""
+
+# Schema for error analysis output
+error_analysis_schema = {
+    "type": "object",
+    "properties": {
+        "error_analysis": {
+            "type": "object",
+            "properties": {
+                "formatting_errors": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "field": {
+                                "type": "string",
+                                "description": "Field path where error occurred"
+                            },
+                            "error_type": {
+                                "type": "string",
+                                "description": "Type of formatting error"
+                            },
+                            "description": {
+                                "type": "string",
+                                "description": "Detailed description of the error"
+                            },
+                            "suggested_fix": {
+                                "type": "string",
+                                "description": "Specific correction suggestion"
+                            }
+                        },
+                        "required": ["field", "error_type", "description", "suggested_fix"]
+                    }
+                },
+                "semantic_errors": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "field": {
+                                "type": "string",
+                                "description": "Field path where error occurred"
+                            },
+                            "error_type": {
+                                "type": "string",
+                                "description": "Type of semantic error"
+                            },
+                            "description": {
+                                "type": "string",
+                                "description": "Detailed description of the error"
+                            },
+                            "required_clarification": {
+                                "type": "string",
+                                "description": "What information is needed"
+                            }
+                        },
+                        "required": ["field", "error_type", "description", "required_clarification"]
+                    }
+                }
+            },
+            "required": ["formatting_errors", "semantic_errors"]
+        }
+    },
+    "required": ["error_analysis"]
+}

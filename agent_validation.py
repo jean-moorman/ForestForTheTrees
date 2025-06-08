@@ -776,25 +776,24 @@ class Validator:
         """
         Extract and fix JSON from a text response after direct parsing has failed.
         Handles common cases like trailing text, markdown wrapping, and string escaping.
-        
+    
         Args:
             content: String that contains JSON somewhere within it
-            
+        
         Returns:
             Extracted and fixed JSON string if successful, None otherwise
         """
         # Quick return if empty or not string
         if not isinstance(content, str) or not content.strip():
             return None
-                
-        # Step 1: Extract JSON object pattern, handling both trailing text and markdown
-        # Look for {...} with optional markdown wrapping
-        # Find outermost {...} patterns - handles nesting by taking the longest valid match
-        json_matches = list(re.finditer(r'\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}', content, re.DOTALL))
-        for match in json_matches:
-            if validated := self.validate_json(match.group(0)):
+            
+        # Step 1: Extract JSON object pattern with proper bracket matching
+        # Use bracket counting to handle arbitrary nesting levels
+        extracted_json = self._extract_json_with_bracket_counting(content)
+        if extracted_json:
+            if validated := self.validate_json(extracted_json):
                 return validated
-                
+    
         # Step 2: If no valid JSON found, check for string escaping
         # Common in API responses or logged outputs
         escaped_match = re.search(r'"(\{(?:\\.|[^"\\])*\})"', content)
@@ -807,8 +806,61 @@ class Validator:
                     return validated
             except json.JSONDecodeError:
                 pass
-                
+            
         # No valid JSON found
+        return None
+
+    def _extract_json_with_bracket_counting(self, content: str) -> Optional[str]:
+        """
+        Extract JSON using bracket counting to handle arbitrary nesting levels.
+        Properly handles braces inside strings by tracking string boundaries.
+        
+        Args:
+            content: String content that may contain JSON
+            
+        Returns:
+            First complete JSON object found, or None if no valid JSON structure
+        """
+        # Find the first opening brace
+        start_idx = content.find('{')
+        if start_idx == -1:
+            return None
+        
+        brace_count = 0
+        in_string = False
+        i = start_idx
+        
+        while i < len(content):
+            char = content[i]
+            
+            # Handle string boundaries (only double quotes for valid JSON)
+            if char == '"':
+                # Check if this quote is escaped by counting preceding backslashes
+                escaped = False
+                backslash_count = 0
+                j = i - 1
+                while j >= 0 and content[j] == '\\':
+                    backslash_count += 1
+                    j -= 1
+                escaped = (backslash_count % 2 == 1)
+                
+                if not escaped:
+                    in_string = not in_string
+                    
+            # Only count braces outside of strings
+            elif not in_string:
+                if char == '{':
+                    brace_count += 1
+                elif char == '}':
+                    brace_count -= 1
+                    
+                    # Found complete JSON object
+                    if brace_count == 0:
+                        return content[start_idx:i+1]
+            
+            i += 1
+        
+        # No complete JSON object found (unmatched braces)
         return None
     
     async def validate_output(

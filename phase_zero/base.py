@@ -1,3 +1,4 @@
+import asyncio
 import json
 import time
 from typing import Dict, List, Any, Optional
@@ -11,7 +12,7 @@ from resources import (
     CacheManager, MetricsManager, ErrorHandler, HealthTracker
 )
 from resources.monitoring import CircuitBreaker, MemoryMonitor, HealthStatus, CircuitOpenError, CircuitBreakerConfig
-from interface import AgentInterface, AgentState
+from interfaces import AgentInterface, AgentState
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -42,7 +43,10 @@ class BaseAnalysisAgent(AgentInterface):
                 error_handler: ErrorHandler,
                  health_tracker: Optional[HealthTracker] = None,
                  memory_monitor: Optional[MemoryMonitor] = None):
-        super().__init__(agent_id, event_queue, state_manager, context_manager, cache_manager, metrics_manager, error_handler)
+        # Ensure memory_monitor is not None for AgentInterface
+        if memory_monitor is None:
+            memory_monitor = MemoryMonitor(event_queue)
+        super().__init__(agent_id, event_queue, state_manager, context_manager, cache_manager, metrics_manager, error_handler, memory_monitor)
         self._analysis_state = AnalysisState.IDLE
         
         # Monitoring components
@@ -55,8 +59,8 @@ class BaseAnalysisAgent(AgentInterface):
         # Create default processing circuit breaker
         self._create_circuit_breaker("processing")
         
-        # Initial health report
-        self._report_agent_health()
+        # Initial health report (deferred to avoid sync/async issues)
+        asyncio.create_task(self._report_agent_health())
     
     def _create_circuit_breaker(
         self, 

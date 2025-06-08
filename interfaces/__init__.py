@@ -29,6 +29,9 @@ from .testing import TestAgent
 # Agent coordination
 from .agent.coordination import CoordinationInterface
 
+# Phase interfaces
+from .phase_interfaces import PhaseZeroInterface
+
 __all__ = [
     # Errors
     'InterfaceError', 'InitializationError', 'StateTransitionError', 
@@ -40,6 +43,9 @@ __all__ = [
     
     # Coordination
     'CoordinationInterface',
+    
+    # Phase interfaces
+    'PhaseZeroInterface',
     
     # Testing
     'TestAgent'

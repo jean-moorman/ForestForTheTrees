@@ -23,9 +23,11 @@ from resources.water_agent.reflective import WaterAgentReflective
 from FFTT_system_prompts.core_agents.water_agent import (
     MISUNDERSTANDING_DETECTION_PROMPT,
     RESOLUTION_ASSESSMENT_PROMPT,
-    CONTEXT_REFINEMENT_PROMPT,
     WATER_AGENT_REFLECTION_PROMPT,
     WATER_AGENT_REVISION_PROMPT
+)
+from FFTT_system_prompts.coordination_refinement_prompt import (
+    AGENT_COORDINATION_REFINEMENT_PROMPT
 )
 
 logger = logging.getLogger(__name__)
@@ -48,7 +50,7 @@ class WaterAgentCoordinator(BaseResource):
     determining when sufficient clarity has been achieved.
     """
     
-    def __init__(self, state_manager=None, event_bus=None, agent_interface=None):
+    def __init__(self, resource_id="water_agent_coordinator", state_manager=None, event_bus=None, agent_interface=None):
         """
         Initialize the WaterAgentCoordinator.
         
@@ -58,11 +60,12 @@ class WaterAgentCoordinator(BaseResource):
         the standardized ReflectiveAgent pattern.
         
         Args:
+            resource_id: Unique identifier for this resource
             state_manager: Optional state manager for persisting coordination state
             event_bus: Optional event bus for emitting events
             agent_interface: Optional agent interface to use for LLM calls
         """
-        super().__init__(state_manager=state_manager, event_bus=event_bus)
+        super().__init__(resource_id=resource_id, state_manager=state_manager, event_bus=event_bus)
         
         # Create or use the provided agent interface
         self.agent_interface = agent_interface
@@ -104,7 +107,7 @@ class WaterAgentCoordinator(BaseResource):
                 cache_manager = CacheManager(event_queue)
                 metrics_manager = MetricsManager(event_queue)
                 error_handler = ErrorHandler(event_queue)
-                memory_monitor = MemoryMonitor()
+                memory_monitor = MemoryMonitor(event_queue)
                 
                 # Create the agent interface (delayed import to avoid circular dependency)
                 from interfaces.agent.interface import AgentInterface
@@ -209,12 +212,13 @@ class WaterAgentCoordinator(BaseResource):
         """
         # Initialize coordination context if not provided
         if not coordination_context:
-            coordination_context = {
-                "coordination_id": str(uuid.uuid4()),
-                "start_time": asyncio.get_event_loop().time(),
-                "max_iterations": 3,  # Default max iterations
-                "severity_threshold": "LOW"  # Default threshold for considering issues resolved
-            }
+            coordination_context = {}
+        
+        # Ensure all required keys are present in coordination_context
+        coordination_context.setdefault("coordination_id", str(uuid.uuid4()))
+        coordination_context.setdefault("start_time", asyncio.get_event_loop().time())
+        coordination_context.setdefault("max_iterations", 3)
+        coordination_context.setdefault("severity_threshold", "LOW")
             
         # Create coordination context in the context manager
         coordination_id = coordination_context.get("coordination_id", str(uuid.uuid4()))
@@ -249,7 +253,7 @@ class WaterAgentCoordinator(BaseResource):
                        f"{first_agent.__class__.__name__} → {second_agent.__class__.__name__}")
             
             await self._emit_event(ResourceEventTypes.RESOURCE_STATE_CHANGED, {
-                "coordination_id": coordination_context["coordination_id"],
+                "coordination_id": coordination_id,
                 "first_agent": getattr(first_agent, 'name', first_agent.__class__.__name__),
                 "second_agent": getattr(second_agent, 'name', second_agent.__class__.__name__),
                 "first_agent_output_length": len(first_agent_output),
@@ -274,7 +278,7 @@ class WaterAgentCoordinator(BaseResource):
                 logger.info("No misunderstandings detected, coordination not needed")
                 
                 await self._emit_event(ResourceEventTypes.RESOURCE_STATE_CHANGED, {
-                    "coordination_id": coordination_context["coordination_id"],
+                    "coordination_id": coordination_id,
                     "iterations": 0,
                     "misunderstandings_detected": 0,
                     "misunderstandings_resolved": 0,
@@ -294,7 +298,7 @@ class WaterAgentCoordinator(BaseResource):
                 severity_counts[severity] = severity_counts.get(severity, 0) + 1
                 
             await self._emit_event(ResourceEventTypes.RESOURCE_STATE_CHANGED, {
-                "coordination_id": coordination_context["coordination_id"],
+                "coordination_id": coordination_id,
                 "misunderstandings_count": len(misunderstandings),
                 "severity_counts": severity_counts,
                 "first_agent_questions_count": len(first_agent_questions),
@@ -316,7 +320,7 @@ class WaterAgentCoordinator(BaseResource):
                 
                 # Emit event for iteration start
                 await self._emit_event(ResourceEventTypes.RESOURCE_STATE_CHANGED, {
-                    "coordination_id": coordination_context["coordination_id"],
+                    "coordination_id": coordination_id,
                     "iteration": iteration,
                     "max_iterations": max_iterations,
                     "first_agent_questions_count": len(first_agent_questions),
@@ -377,7 +381,7 @@ class WaterAgentCoordinator(BaseResource):
                 # Emit events for resolved misunderstandings
                 for resolved in resolved_issues:
                     await self._emit_event(ResourceEventTypes.RESOURCE_STATE_CHANGED, {
-                        "coordination_id": coordination_context["coordination_id"],
+                        "coordination_id": coordination_id,
                         "misunderstanding_id": resolved.get("id", "unknown"),
                         "resolution_summary": resolved.get("resolution_summary", ""),
                         "iteration": iteration
@@ -433,7 +437,7 @@ class WaterAgentCoordinator(BaseResource):
                 
             # Emit completion event
             await self._emit_event(ResourceEventTypes.RESOURCE_STATE_CHANGED, {
-                "coordination_id": coordination_context["coordination_id"],
+                "coordination_id": coordination_id,
                 "iterations": iteration,
                 "duration": coordination_context["duration"],
                 "resolved_misunderstandings": len(self.resolution_tracker.resolved_issues),
@@ -474,11 +478,10 @@ class WaterAgentCoordinator(BaseResource):
         coordination_context: Dict[str, Any]
     ) -> Tuple[str, str, Dict[str, Any]]:
         """
-        Generate final outputs for both agents with resolved misunderstandings.
+        Generate final outputs using decentralized agent self-refinement.
         
-        This function consolidates the understanding gained through the coordination
-        process to update the outputs of both agents. It can use a reflective agent
-        for enhanced context refinement when available.
+        Each agent refines their own output using the coordination feedback,
+        replacing the centralized water agent refinement approach.
         
         Args:
             first_agent: The first agent in the sequence
@@ -498,63 +501,209 @@ class WaterAgentCoordinator(BaseResource):
         if not coordination_context.get("misunderstandings"):
             return first_agent_output, second_agent_output, {
                 "first_agent_changes": [],
-                "second_agent_changes": []
+                "second_agent_changes": [],
+                "refinement_approach": "no_refinement_needed"
             }
             
         # If no iterations occurred, return original outputs
         if "iteration_1" not in coordination_context:
             return first_agent_output, second_agent_output, {
                 "first_agent_changes": [],
-                "second_agent_changes": []
+                "second_agent_changes": [],
+                "refinement_approach": "no_iterations_occurred"
             }
         
-        # Build a record of the coordination process for the prompt
-        coordination_record = []
+        logger.info("Performing decentralized agent self-refinement")
         
-        # Get total iterations
+        try:
+            # Refine first agent's output
+            refined_first_output, first_refinement_summary = await self._refine_agent_output(
+                first_agent,
+                first_agent_output,
+                second_agent_output,
+                coordination_context,
+                agent_role="first_agent"
+            )
+            
+            # Refine second agent's output  
+            refined_second_output, second_refinement_summary = await self._refine_agent_output(
+                second_agent,
+                second_agent_output,
+                first_agent_output,
+                coordination_context,
+                agent_role="second_agent"
+            )
+            
+            # Compile overall refinement summary
+            overall_summary = {
+                "first_agent_changes": first_refinement_summary.get("changes_made", []),
+                "second_agent_changes": second_refinement_summary.get("changes_made", []),
+                "first_agent_refinement": first_refinement_summary,
+                "second_agent_refinement": second_refinement_summary,
+                "refinement_approach": "decentralized_self_refinement"
+            }
+            
+            logger.info(f"Decentralized refinement completed: " +
+                      f"First agent changes: {len(overall_summary['first_agent_changes'])}, " +
+                      f"Second agent changes: {len(overall_summary['second_agent_changes'])}")
+            
+            return refined_first_output, refined_second_output, overall_summary
+            
+        except Exception as e:
+            logger.error(f"Error in decentralized agent refinement: {str(e)}")
+            
+            # In case of error, return original outputs
+            return first_agent_output, second_agent_output, {
+                "first_agent_changes": [],
+                "second_agent_changes": [],
+                "error": str(e),
+                "refinement_approach": "failed_fallback"
+            }
+    
+    async def _refine_agent_output(
+        self,
+        agent: Any,
+        agent_output: str,
+        peer_agent_output: str,
+        coordination_context: Dict[str, Any],
+        agent_role: str
+    ) -> Tuple[str, Dict[str, Any]]:
+        """
+        Have an individual agent refine their own output using coordination feedback.
+        
+        Args:
+            agent: The agent to perform self-refinement
+            agent_output: The agent's original output
+            peer_agent_output: The peer agent's output for context
+            coordination_context: Full coordination context
+            agent_role: "first_agent" or "second_agent"
+            
+        Returns:
+            Tuple containing:
+            - Refined output
+            - Refinement summary
+        """
+        try:
+            # Extract coordination data specific to this agent
+            coordination_record = self._extract_agent_coordination_record(coordination_context, agent_role, agent)
+            misunderstanding_resolution = self._extract_misunderstanding_resolution(coordination_context)
+            peer_agent_context = self._extract_peer_agent_context(peer_agent_output, coordination_context, agent_role)
+            
+            # Create the coordination refinement prompt
+            formatted_prompt = AGENT_COORDINATION_REFINEMENT_PROMPT.format(
+                agent_output=agent_output,
+                coordination_record=coordination_record,
+                misunderstanding_resolution=misunderstanding_resolution,
+                peer_agent_context=peer_agent_context
+            )
+            
+            # Call the agent to refine their own output
+            if hasattr(agent, 'process_with_validation'):
+                refinement_response = await agent.process_with_validation(
+                    conversation=formatted_prompt,
+                    system_prompt_info=("FFTT_system_prompts.coordination_refinement_prompt", "agent_coordination_refinement"),
+                    current_phase="coordination_self_refinement",
+                    operation_id=f"self_refine_{agent_role}_{uuid.uuid4()}"
+                )
+            else:
+                # Fallback: agent doesn't support process_with_validation
+                logger.warning(f"Agent {getattr(agent, 'agent_id', 'unknown')} doesn't support process_with_validation")
+                return agent_output, {
+                    "refinement_applied": False,
+                    "reason": "Agent doesn't support self-refinement",
+                    "changes_made": [],
+                    "coordination_insights_applied": [],
+                    "areas_clarified": [],
+                    "compatibility_improvements": [],
+                    "preserved_elements": []
+                }
+            
+            # Parse the refinement response
+            if isinstance(refinement_response, dict):
+                if "content" in refinement_response:
+                    refinement_response = refinement_response["content"]
+                elif "response" in refinement_response:
+                    refinement_response = refinement_response["response"]
+            
+            parsed_response = self._parse_json_response(refinement_response)
+            
+            refined_output = parsed_response.get("refined_output", agent_output)
+            refinement_summary = parsed_response.get("refinement_summary", {
+                "changes_made": [],
+                "coordination_insights_applied": [],
+                "areas_clarified": [],
+                "compatibility_improvements": [],
+                "preserved_elements": []
+            })
+            
+            # Add metadata
+            refinement_summary["refinement_applied"] = True
+            refinement_summary["agent_role"] = agent_role
+            refinement_summary["agent_id"] = getattr(agent, 'agent_id', 'unknown')
+            
+            logger.info(f"Agent {getattr(agent, 'agent_id', 'unknown')} self-refinement completed")
+            
+            return refined_output, refinement_summary
+            
+        except Exception as e:
+            logger.error(f"Error in agent self-refinement for {agent_role}: {str(e)}")
+            
+            # Return original output with error info
+            return agent_output, {
+                "refinement_applied": False,
+                "error": str(e),
+                "agent_role": agent_role,
+                "changes_made": [],
+                "coordination_insights_applied": [],
+                "areas_clarified": [],
+                "compatibility_improvements": [],
+                "preserved_elements": []
+            }
+    
+    def _extract_agent_coordination_record(
+        self,
+        coordination_context: Dict[str, Any],
+        agent_role: str,
+        agent: Any
+    ) -> str:
+        """Extract coordination record specific to an agent."""
+        coordination_record = []
         total_iterations = coordination_context.get("total_iterations", 0)
         
-        # Build the record of each iteration
+        # Determine which questions/responses belong to this agent
+        questions_key = f"{agent_role}_questions"
+        responses_key = f"{agent_role}_responses"
+        
         for i in range(1, total_iterations + 1):
             iteration_key = f"iteration_{i}"
             if iteration_key not in coordination_context:
                 continue
                 
-            # Get the questions and responses for this iteration
             iteration_data = coordination_context[iteration_key]
             
-            # Format first agent Q&A
-            first_agent_qa = []
-            for q, a in zip(iteration_data.get("first_agent_questions", []), 
-                           iteration_data.get("first_agent_responses", [])):
-                first_agent_qa.append(f"Q: {q}\nA: {a}")
-                
-            # Format second agent Q&A
-            second_agent_qa = []
-            for q, a in zip(iteration_data.get("second_agent_questions", []), 
-                           iteration_data.get("second_agent_responses", [])):
-                second_agent_qa.append(f"Q: {q}\nA: {a}")
-                
-            # Add to coordination record
-            coordination_record.append(f"--- Iteration {i} ---\n")
+            # Get agent-specific Q&A
+            agent_questions = iteration_data.get(questions_key, [])
+            agent_responses = iteration_data.get(responses_key, [])
             
-            if first_agent_qa:
-                coordination_record.append(f"First Agent ({first_agent.__class__.__name__}) Q&A:\n")
-                coordination_record.append("\n\n".join(first_agent_qa))
-                coordination_record.append("\n")
+            if agent_questions:
+                coordination_record.append(f"--- Iteration {i} ---")
+                coordination_record.append(f"Questions asked to you:")
                 
-            if second_agent_qa:
-                coordination_record.append(f"Second Agent ({second_agent.__class__.__name__}) Q&A:\n")
-                coordination_record.append("\n\n".join(second_agent_qa))
-                coordination_record.append("\n")
+                for q, a in zip(agent_questions, agent_responses):
+                    coordination_record.append(f"Q: {q}")
+                    coordination_record.append(f"A: {a}")
+                coordination_record.append("")
         
-        # Format misunderstanding resolution information
+        return "\n".join(coordination_record)
+    
+    def _extract_misunderstanding_resolution(self, coordination_context: Dict[str, Any]) -> str:
+        """Extract misunderstanding resolution information."""
         misunderstanding_resolution = []
+        total_iterations = coordination_context.get("total_iterations", 0)
         
-        # Add resolved issues
-        misunderstanding_resolution.append("--- Resolved Misunderstandings ---\n")
+        # Get resolved issues
+        misunderstanding_resolution.append("--- Resolved Misunderstandings ---")
         for issue_id in self.resolution_tracker.resolved_issues:
-            # Find the resolution summary from the context
             resolution_summary = "No details available"
             for i in range(1, total_iterations + 1):
                 resolution_key = f"resolution_{i}"
@@ -564,141 +713,60 @@ class WaterAgentCoordinator(BaseResource):
                             resolution_summary = resolved.get("resolution_summary", "No details available")
                             break
             
-            misunderstanding_resolution.append(f"ID: {issue_id}\nResolution: {resolution_summary}\n")
+            misunderstanding_resolution.append(f"ID: {issue_id}")
+            misunderstanding_resolution.append(f"Resolution: {resolution_summary}")
+            misunderstanding_resolution.append("")
         
-        # Add unresolved issues
-        misunderstanding_resolution.append("--- Unresolved Misunderstandings ---\n")
+        # Get unresolved issues
+        misunderstanding_resolution.append("--- Unresolved Misunderstandings ---")
         for issue_id, issue in self.resolution_tracker.unresolved_issues.items():
             severity = issue.get("severity", "UNKNOWN")
             description = issue.get("description", "No description available")
-            misunderstanding_resolution.append(f"ID: {issue_id}\nSeverity: {severity}\nDescription: {description}\n")
+            misunderstanding_resolution.append(f"ID: {issue_id}")
+            misunderstanding_resolution.append(f"Severity: {severity}")
+            misunderstanding_resolution.append(f"Description: {description}")
+            misunderstanding_resolution.append("")
         
-        # Combine all parts into a single string
-        coordination_record_str = "\n".join(coordination_record)
-        misunderstanding_resolution_str = "\n".join(misunderstanding_resolution)
+        return "\n".join(misunderstanding_resolution)
+    
+    def _extract_peer_agent_context(
+        self,
+        peer_agent_output: str,
+        coordination_context: Dict[str, Any],
+        agent_role: str
+    ) -> str:
+        """Extract context about the peer agent."""
+        peer_context = []
         
-        # Try to use reflective agent if available
-        use_reflective = coordination_context.get("use_reflection", True)
+        # Add peer agent's output
+        peer_context.append("--- Peer Agent Output ---")
+        peer_context.append(peer_agent_output)
+        peer_context.append("")
         
-        if use_reflective and self.agent_interface is not None:
-            try:
-                # Initialize reflective agent if not already done
-                await self.ensure_reflective_agent_initialized()
+        # Add peer agent's responses if available
+        total_iterations = coordination_context.get("total_iterations", 0)
+        peer_role = "second_agent" if agent_role == "first_agent" else "first_agent"
+        peer_questions_key = f"{peer_role}_questions"
+        peer_responses_key = f"{peer_role}_responses"
+        
+        peer_context.append("--- Peer Agent Q&A During Coordination ---")
+        for i in range(1, total_iterations + 1):
+            iteration_key = f"iteration_{i}"
+            if iteration_key not in coordination_context:
+                continue
                 
-                if self._reflective_agent is not None:
-                    logger.info("Using reflective agent for context refinement")
-                    
-                    # Prepare the refinement context
-                    refinement_context = {
-                        "first_agent_output": first_agent_output,
-                        "second_agent_output": second_agent_output,
-                        "coordination_record": coordination_record_str,
-                        "misunderstanding_resolution": misunderstanding_resolution_str,
-                        "refinement_id": f"refine_{uuid.uuid4()}"
-                    }
-                    
-                    # Use the reflective agent to process the context refinement
-                    # Format the context refinement prompt - this is needed because the
-                    # reflective agent doesn't have access to CONTEXT_REFINEMENT_PROMPT directly
-                    formatted_prompt = CONTEXT_REFINEMENT_PROMPT.format(
-                        first_agent_output=first_agent_output,
-                        second_agent_output=second_agent_output,
-                        coordination_record=coordination_record_str,
-                        misunderstanding_resolution=misunderstanding_resolution_str
-                    )
-                    
-                    # Set up the reflective agent processing context
-                    processing_context = {
-                        "refinement_context": refinement_context,
-                        "prompt": formatted_prompt
-                    }
-                    
-                    # Use the reflective agent to process with built-in reflection
-                    refinement_result = await self._reflective_agent.process_with_validation(
-                        conversation=formatted_prompt,
-                        system_prompt_info=("FFTT_system_prompts/core_agents/water_agent", "context_refinement_prompt"),
-                        current_phase="context_refinement",
-                        operation_id=refinement_context["refinement_id"]
-                    )
-                    
-                    # Extract the refined outputs and summary
-                    # refinement_result is the raw response, which should be a parsed JSON object already
-                    refined_first_output = refinement_result.get("refined_first_agent_output", first_agent_output)
-                    refined_second_output = refinement_result.get("refined_second_agent_output", second_agent_output)
-                    refinement_summary = refinement_result.get("refinement_summary", {
-                        "first_agent_changes": [],
-                        "second_agent_changes": []
-                    })
-                    
-                    logger.info("Successfully used reflective agent for context refinement")
-                    
-                    # Log refinement results
-                    logger.info(f"Generated refined outputs: " +
-                              f"First agent changes: {len(refinement_summary.get('first_agent_changes', []))}, " +
-                              f"Second agent changes: {len(refinement_summary.get('second_agent_changes', []))}")
-                    
-                    return refined_first_output, refined_second_output, refinement_summary
-            except Exception as reflective_e:
-                logger.warning(f"Error using reflective agent for context refinement, falling back to direct approach: {str(reflective_e)}")
-                # Fall through to direct approach if reflective agent fails
+            iteration_data = coordination_context[iteration_key]
+            peer_questions = iteration_data.get(peer_questions_key, [])
+            peer_responses = iteration_data.get(peer_responses_key, [])
+            
+            if peer_questions:
+                peer_context.append(f"Iteration {i}:")
+                for q, a in zip(peer_questions, peer_responses):
+                    peer_context.append(f"  Q: {q}")
+                    peer_context.append(f"  A: {a}")
+                peer_context.append("")
         
-        # Direct approach without reflective agent
-        try:
-            # Create the prompt for the context refinement
-            formatted_prompt = CONTEXT_REFINEMENT_PROMPT.format(
-                first_agent_output=first_agent_output,
-                second_agent_output=second_agent_output,
-                coordination_record=coordination_record_str,
-                misunderstanding_resolution=misunderstanding_resolution_str
-            )
-            
-            # Use the agent interface if available, otherwise fall back to placeholder
-            if self.agent_interface is not None:
-                # Call the LLM to generate refined outputs using agent interface
-                refinement_response = await self.agent_interface.process_with_validation(
-                    conversation=formatted_prompt,
-                    system_prompt_info=("FFTT_system_prompts/core_agents/water_agent", "context_refinement_prompt"),
-                    current_phase="context_refinement",
-                    operation_id=f"context_refine_{uuid.uuid4()}"
-                )
-                
-                # Extract response content if needed
-                if isinstance(refinement_response, dict):
-                    if "content" in refinement_response:
-                        refinement_response = refinement_response["content"]
-                    elif "response" in refinement_response:
-                        refinement_response = refinement_response["response"]
-            else:
-                # Use the internal _call_llm method as fallback
-                refinement_response = await self._call_llm(formatted_prompt, "context_refinement")
-            
-            # Parse the response
-            parsed_response = self._parse_json_response(refinement_response)
-            
-            # Extract the refined outputs and summary
-            refined_first_output = parsed_response.get("refined_first_agent_output", first_agent_output)
-            refined_second_output = parsed_response.get("refined_second_agent_output", second_agent_output)
-            refinement_summary = parsed_response.get("refinement_summary", {
-                "first_agent_changes": [],
-                "second_agent_changes": []
-            })
-            
-            # Log refinement results
-            logger.info(f"Generated refined outputs: " +
-                      f"First agent changes: {len(refinement_summary.get('first_agent_changes', []))}, " +
-                      f"Second agent changes: {len(refinement_summary.get('second_agent_changes', []))}")
-            
-            return refined_first_output, refined_second_output, refinement_summary
-            
-        except Exception as e:
-            logger.error(f"Error generating refined outputs: {str(e)}")
-            
-            # In case of error, return original outputs
-            return first_agent_output, second_agent_output, {
-                "first_agent_changes": [],
-                "second_agent_changes": [],
-                "error": str(e)
-            }
+        return "\n".join(peer_context)
     
     async def _call_llm(self, prompt: str, prompt_type: str = "context_refinement") -> str:
         """
@@ -741,9 +809,21 @@ class WaterAgentCoordinator(BaseResource):
                         return response["content"]
                     elif "response" in response:
                         return response["response"]
+                    elif "error" in response:
+                        # Handle error responses
+                        logger.warning(f"Agent returned error: {response['error']}")
+                        return json.dumps({})
                     else:
-                        # Return the whole response as JSON string
-                        return json.dumps(response)
+                        # Check if this is already a valid response object with the expected schema
+                        # For water agent, we expect misunderstandings, first_agent_questions, second_agent_questions
+                        if ("misunderstandings" in response or 
+                            "resolved_misunderstandings" in response or
+                            "task_analysis" in response):
+                            # This is already the validated response data, return as JSON string
+                            return json.dumps(response)
+                        else:
+                            # Return the whole response as JSON string  
+                            return json.dumps(response)
                 elif isinstance(response, str):
                     return response
                 else:
@@ -804,7 +884,16 @@ class WaterAgentCoordinator(BaseResource):
             The parsed JSON as a dictionary
         """
         try:
-            # Extract JSON from the response
+            # First try to extract JSON from code blocks
+            import re
+            code_block_pattern = r'```json\s*(.*?)\s*```'
+            code_block_match = re.search(code_block_pattern, response, re.DOTALL)
+            
+            if code_block_match:
+                json_str = code_block_match.group(1).strip()
+                return json.loads(json_str)
+            
+            # Fallback: Extract JSON from the response using brace matching
             json_start = response.find('{')
             json_end = response.rfind('}')
             
@@ -818,6 +907,7 @@ class WaterAgentCoordinator(BaseResource):
         except json.JSONDecodeError as e:
             logger.error(f"Error parsing JSON from LLM response: {str(e)}")
             logger.debug(f"Raw response: {response}")
+            logger.debug(f"Extracted JSON string: {json_str if 'json_str' in locals() else 'N/A'}")
             return {}
 
 
@@ -958,28 +1048,59 @@ class MisunderstandingDetector:
                     # Fall through to direct approach if reflective agent fails
             
             # Direct approach without reflective agent
-            # Prepare prompt with agent outputs
-            formatted_prompt = MISUNDERSTANDING_DETECTION_PROMPT.format(
-                first_agent_output=first_agent_output,
-                second_agent_output=second_agent_output
-            )
+            # Prepare conversation data with agent outputs (following standard agent pattern)
+            conversation_data = {
+                "task": "Detect potential misunderstandings between sequential agent outputs",
+                "first_agent_output": first_agent_output,
+                "second_agent_output": second_agent_output,
+                "detection_context": {
+                    "timestamp": asyncio.get_event_loop().time(),
+                    "detection_id": str(uuid.uuid4())
+                }
+            }
+            conversation = json.dumps(conversation_data, indent=2)
             
             # Make LLM API call - either through our own interface or via parent coordinator
             if self.agent_interface is not None:
                 # Use agent interface directly
                 detection_response = await self.agent_interface.process_with_validation(
-                    conversation=formatted_prompt,
+                    conversation=conversation,
                     system_prompt_info=("FFTT_system_prompts/core_agents/water_agent", "misunderstanding_detection_prompt"),
                     current_phase="misunderstanding_detection",
                     operation_id=f"misunderstand_detect_{uuid.uuid4()}"
                 )
+                logger.debug(f"Raw detection_response from process_with_validation: {repr(detection_response)}")
+                logger.debug(f"Type of detection_response: {type(detection_response)}")
                 
-                # Extract response content if needed
+                # Handle response from process_with_validation
                 if isinstance(detection_response, dict):
-                    if "content" in detection_response:
+                    if "error" in detection_response:
+                        # Handle error responses
+                        logger.warning(f"Agent returned error during misunderstanding detection: {detection_response['error']}")
+                        detection_response = json.dumps({
+                            "misunderstandings": [],
+                            "first_agent_questions": [],
+                            "second_agent_questions": []
+                        })
+                    elif "content" in detection_response:
                         detection_response = detection_response["content"]
                     elif "response" in detection_response:
                         detection_response = detection_response["response"]
+                    elif ("misunderstandings" in detection_response or 
+                          "first_agent_questions" in detection_response or
+                          "second_agent_questions" in detection_response):
+                        # This is already the validated response data, parse it directly
+                        parsed_response = detection_response
+                        # Skip the _parse_json_response step and extract directly
+                        misunderstandings = parsed_response.get("misunderstandings", [])
+                        first_agent_questions = [
+                            q["question"] for q in parsed_response.get("first_agent_questions", [])
+                        ]
+                        second_agent_questions = [
+                            q["question"] for q in parsed_response.get("second_agent_questions", [])
+                        ]
+                        logger.info(f"Detected {len(misunderstandings)} potential misunderstandings")
+                        return misunderstandings, first_agent_questions, second_agent_questions
             else:
                 # Parent coordinator will handle the call with a placeholder
                 # This should be replaced with a proper call to the parent's _call_llm method
@@ -990,6 +1111,8 @@ class MisunderstandingDetector:
                 })
             
             # Parse the response
+            logger.debug(f"Raw detection_response before parsing: {repr(detection_response)}")
+            logger.debug(f"Type of detection_response: {type(detection_response)}")
             parsed_response = self._parse_json_response(detection_response)
             
             # Extract the misunderstandings and questions
@@ -1022,7 +1145,16 @@ class MisunderstandingDetector:
             The parsed JSON as a dictionary
         """
         try:
-            # Extract JSON from the response
+            # First try to extract JSON from code blocks
+            import re
+            code_block_pattern = r'```json\s*(.*?)\s*```'
+            code_block_match = re.search(code_block_pattern, response, re.DOTALL)
+            
+            if code_block_match:
+                json_str = code_block_match.group(1).strip()
+                return json.loads(json_str)
+            
+            # Fallback: Extract JSON from the response using brace matching
             # This handles cases where the LLM might include explanation text before/after the JSON
             json_start = response.find('{')
             json_end = response.rfind('}')
@@ -1041,6 +1173,7 @@ class MisunderstandingDetector:
         except json.JSONDecodeError as e:
             logger.error(f"Error parsing JSON from LLM response: {str(e)}")
             logger.debug(f"Raw response: {response}")
+            logger.debug(f"Extracted JSON string: {json_str if 'json_str' in locals() else 'N/A'}")
             return {
                 "misunderstandings": [],
                 "first_agent_questions": [],
@@ -1293,30 +1426,29 @@ class AmbiguityResolutionTracker:
         for i, (q, a) in enumerate(zip(second_agent_questions, second_agent_responses)):
             second_agent_qa.append(f"Q{i+1}: {q}\nA{i+1}: {a}")
 
-        # Prepare the formatted Q&A for the prompt
-        first_agent_qa_str = "\n\n".join(first_agent_qa)
-        second_agent_qa_str = "\n\n".join(second_agent_qa)
-        
-        # Format the misunderstandings for the prompt
-        misunderstandings_str = json.dumps(misunderstandings, indent=2)
-        
         # Calculate the current iteration number based on the state
         self.iteration += 1
             
-        # Prepare prompt with the formatted inputs
-        formatted_prompt = RESOLUTION_ASSESSMENT_PROMPT.format(
-            misunderstandings=misunderstandings_str,
-            first_agent_questions_and_responses=first_agent_qa_str,
-            second_agent_questions_and_responses=second_agent_qa_str,
-            current_iteration=self.iteration
-        )
+        # Prepare conversation data (following standard agent pattern)
+        conversation_data = {
+            "task": "Assess resolution of misunderstandings based on agent responses",
+            "misunderstandings": misunderstandings,
+            "first_agent_questions_and_responses": "\n\n".join(first_agent_qa),
+            "second_agent_questions_and_responses": "\n\n".join(second_agent_qa),
+            "current_iteration": self.iteration,
+            "assessment_context": {
+                "timestamp": asyncio.get_event_loop().time(),
+                "assessment_id": str(uuid.uuid4())
+            }
+        }
+        conversation = json.dumps(conversation_data, indent=2)
         
         try:
             # Make LLM API call using agent interface if available
             if self.agent_interface is not None:
                 # Use agent interface directly
                 assessment_response = await self.agent_interface.process_with_validation(
-                    conversation=formatted_prompt,
+                    conversation=conversation,
                     system_prompt_info=("FFTT_system_prompts/core_agents/water_agent", "resolution_assessment_prompt"),
                     current_phase="resolution_assessment",
                     operation_id=f"resolution_assess_{uuid.uuid4()}"
@@ -1399,7 +1531,16 @@ class AmbiguityResolutionTracker:
             The parsed JSON as a dictionary
         """
         try:
-            # Extract JSON from the response
+            # First try to extract JSON from code blocks
+            import re
+            code_block_pattern = r'```json\s*(.*?)\s*```'
+            code_block_match = re.search(code_block_pattern, response, re.DOTALL)
+            
+            if code_block_match:
+                json_str = code_block_match.group(1).strip()
+                return json.loads(json_str)
+            
+            # Fallback: Extract JSON from the response using brace matching
             json_start = response.find('{')
             json_end = response.rfind('}')
             

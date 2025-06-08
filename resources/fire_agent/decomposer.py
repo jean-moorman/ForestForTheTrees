@@ -135,9 +135,9 @@ async def decompose_complex_guideline(
             warnings=warnings,
             follow_up_recommendations=follow_up_recommendations,
             success_metrics={
-                "complexity_reduction_percentage": (complexity_reduction / original_score * 100) if complexity_reduction and original_score > 0 else 0,
+                "complexity_reduction_percentage": (complexity_reduction / original_score * 100) if complexity_reduction is not None and original_score > 0 else 0.0,
                 "elements_decomposed": len(decomposed_elements),
-                "strategy_effectiveness": "high" if complexity_reduction and complexity_reduction > 20 else "low"
+                "strategy_effectiveness": "high" if complexity_reduction is not None and complexity_reduction > 20 else "low"
             }
         )
         
@@ -149,7 +149,8 @@ async def decompose_complex_guideline(
         if health_tracker:
             await _track_decomposition_health(health_tracker, result)
         
-        logger.info(f"Guideline decomposition complete: success={decomposition_success}, reduction={complexity_reduction:.2f if complexity_reduction else 0}")
+        reduction_str = f"{complexity_reduction:.2f}" if complexity_reduction is not None else "0.00"
+        logger.info(f"Guideline decomposition complete: success={decomposition_success}, reduction={reduction_str}")
         
         return result
         
@@ -905,8 +906,21 @@ def _component_has_layers(component: Dict[str, Any]) -> bool:
 
 def _identify_responsibility_clusters(guideline: Dict[str, Any]) -> List[Dict[str, Any]]:
     """Identify clusters of related responsibilities."""
-    # Simplified implementation
+    # Look for responsibilities at multiple levels
     responsibilities = guideline.get("responsibilities", [])
+    
+    # Also check nested structures
+    if not responsibilities and "component_architecture" in guideline:
+        responsibilities = guideline["component_architecture"].get("responsibilities", [])
+    
+    # Check other common nesting patterns
+    if not responsibilities:
+        for key in ["features", "components", "modules"]:
+            if key in guideline and isinstance(guideline[key], dict):
+                responsibilities = guideline[key].get("responsibilities", [])
+                if responsibilities:
+                    break
+    
     if not isinstance(responsibilities, list):
         responsibilities = [responsibilities] if responsibilities else []
     
@@ -924,12 +938,24 @@ def _identify_responsibility_clusters(guideline: Dict[str, Any]) -> List[Dict[st
 
 def _extract_core_dependencies(guideline: Dict[str, Any], core_responsibility: Dict[str, Any]) -> List[str]:
     """Extract core dependencies for a responsibility."""
-    return guideline.get("dependencies", [])[:3]  # Simplified
+    dependencies = guideline.get("dependencies", [])
+    
+    # Check nested structures
+    if not dependencies and "component_architecture" in guideline:
+        dependencies = guideline["component_architecture"].get("dependencies", [])
+    
+    return dependencies[:3]  # Simplified
 
 
 def _extract_core_interfaces(guideline: Dict[str, Any], core_responsibility: Dict[str, Any]) -> List[str]:
     """Extract core interfaces for a responsibility."""
-    return guideline.get("interfaces", [])[:2]  # Simplified
+    interfaces = guideline.get("interfaces", [])
+    
+    # Check nested structures
+    if not interfaces and "component_architecture" in guideline:
+        interfaces = guideline["component_architecture"].get("interfaces", [])
+    
+    return interfaces[:2]  # Simplified
 
 
 def _group_dependencies(dependencies: List[Any]) -> Dict[str, List[Any]]:

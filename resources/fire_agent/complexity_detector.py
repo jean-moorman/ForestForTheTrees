@@ -209,9 +209,10 @@ async def analyze_feature_complexity(
         # Calculate total complexity score
         total_score = _calculate_weighted_complexity_score(complexity_factors)
         
-        # Determine complexity level and recommendations
-        complexity_level = thresholds.get_level(total_score)
-        exceeds_threshold = complexity_level in [ComplexityLevel.HIGH, ComplexityLevel.CRITICAL]
+        # Determine complexity level and recommendations with feature-specific thresholds
+        complexity_level = thresholds.get_level(total_score, "phase_three_feature")
+        # For features, trigger decomposition at MEDIUM level and above
+        exceeds_threshold = complexity_level in [ComplexityLevel.MEDIUM, ComplexityLevel.HIGH, ComplexityLevel.CRITICAL]
         
         recommended_strategy = _determine_feature_decomposition_strategy(complexity_causes, total_score)
         decomposition_opportunities = _identify_feature_decomposition_opportunities(feature_spec, complexity_causes)
@@ -672,20 +673,31 @@ def _analyze_feature_scope_complexity(feature_spec: Dict[str, Any]) -> float:
     """Analyze feature scope complexity."""
     scope_indicators = feature_spec.get("scope", {})
     if isinstance(scope_indicators, str):
-        return min(len(scope_indicators.split()) * 2, 100)
+        return min(len(scope_indicators.split()) * 3, 100)
     elif isinstance(scope_indicators, (list, dict)):
-        return min(len(scope_indicators) * 15, 100)
-    return 30  # Default moderate score
+        return min(len(scope_indicators) * 20, 100)
+    elif isinstance(scope_indicators, dict):
+        # Count nested scope elements
+        total_scope_items = 0
+        for key, value in scope_indicators.items():
+            if isinstance(value, list):
+                total_scope_items += len(value)
+            elif isinstance(value, bool) and value:
+                total_scope_items += 1
+            elif isinstance(value, dict):
+                total_scope_items += len(value)
+        return min(total_scope_items * 8, 100)
+    return 35  # Default moderate score
 
 
 def _analyze_feature_responsibility_complexity(feature_spec: Dict[str, Any]) -> float:
     """Analyze feature responsibility complexity."""
     responsibilities = feature_spec.get("responsibilities", [])
     if isinstance(responsibilities, list):
-        return min(len(responsibilities) * 20, 100)
+        return min(len(responsibilities) * 25, 100)  # Increased multiplier
     elif isinstance(responsibilities, str):
-        return min(len(responsibilities.split('.')) * 15, 100)
-    return 25
+        return min(len(responsibilities.split('.')) * 20, 100)  # Increased multiplier
+    return 30
 
 
 def _analyze_feature_dependency_complexity(feature_spec: Dict[str, Any], feature_context: Dict[str, Any]) -> float:
@@ -694,22 +706,33 @@ def _analyze_feature_dependency_complexity(feature_spec: Dict[str, Any], feature
     context_deps = feature_context.get("related_features", [])
     
     total_deps = len(dependencies) + len(context_deps)
-    return min(total_deps * 18, 100)
+    return min(total_deps * 22, 100)  # Increased multiplier
 
 
 def _analyze_cross_cutting_concerns(feature_spec: Dict[str, Any]) -> float:
     """Analyze cross-cutting concerns in feature."""
     cross_cutting_indicators = [
         "logging", "security", "caching", "monitoring", "validation",
-        "error_handling", "performance", "scalability"
+        "error_handling", "performance", "scalability", "authentication",
+        "authorization", "auditing"
     ]
     
     found_concerns = 0
+    spec_text = str(feature_spec).lower()
+    
+    # Check for explicit cross-cutting concerns in scope
+    scope = feature_spec.get("scope", {})
+    if isinstance(scope, dict):
+        cross_cutting_list = scope.get("cross_cutting_concerns", [])
+        if isinstance(cross_cutting_list, list):
+            found_concerns += len(cross_cutting_list)
+    
+    # Check for keywords in text
     for concern in cross_cutting_indicators:
-        if concern in str(feature_spec).lower():
+        if concern in spec_text:
             found_concerns += 1
     
-    return min(found_concerns * 15, 100)
+    return min(found_concerns * 18, 100)  # Increased multiplier
 
 
 def _analyze_implementation_breadth(feature_spec: Dict[str, Any]) -> float:
@@ -721,11 +744,20 @@ def _analyze_implementation_breadth(feature_spec: Dict[str, Any]) -> float:
     
     areas_covered = 0
     spec_text = str(feature_spec).lower()
+    
+    # Check for explicit implementation areas
+    implementation = feature_spec.get("implementation", {})
+    if isinstance(implementation, dict):
+        for area in implementation_areas:
+            if implementation.get(area, False):
+                areas_covered += 1
+    
+    # Also check in text
     for area in implementation_areas:
         if area in spec_text:
             areas_covered += 1
     
-    return min(areas_covered * 12, 100)
+    return min(areas_covered * 15, 100)  # Increased multiplier
 
 
 def _determine_feature_decomposition_strategy(
@@ -733,7 +765,7 @@ def _determine_feature_decomposition_strategy(
     total_score: float
 ) -> Optional[DecompositionStrategy]:
     """Determine decomposition strategy for features."""
-    if total_score < 65:
+    if total_score < 45:  # Aligned with feature medium threshold
         return None
     
     # Feature-specific strategy logic

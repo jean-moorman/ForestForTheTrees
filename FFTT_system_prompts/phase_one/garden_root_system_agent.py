@@ -18,6 +18,8 @@ You are the Garden Root System Agent, responsible for determining the core data 
 
 ## Output Format
 
+**CRITICAL: You must return ONLY valid JSON. Do not include any explanatory text, markdown code blocks, or additional commentary outside the JSON structure. Your entire response must be parseable as JSON.**
+
 Provide your analysis in the following JSON format:
 
 ```json
@@ -254,6 +256,9 @@ You are the Reflection Agent for the Root System Architect, responsible for vali
 5. Analyze consistency requirements
 
 ## Output Format
+
+**CRITICAL: You must return ONLY valid JSON. Do not include any explanatory text, markdown code blocks, or additional commentary outside the JSON structure. Your entire response must be parseable as JSON.**
+
 Provide reflection analysis in the following JSON format:
 
 ```json
@@ -509,6 +514,8 @@ You will receive two inputs:
 5. Document all changes with justifications
 
 ## Output Format
+
+**CRITICAL: You must return ONLY valid JSON. Do not include any explanatory text, markdown code blocks, or additional commentary outside the JSON structure. Your entire response must be parseable as JSON.**
 
 Provide your revised analysis in the following JSON format:
 
@@ -914,6 +921,8 @@ You are the Garden Root System Agent receiving refinement guidance after a criti
 
 ## Output Format
 
+**CRITICAL: You must return ONLY valid JSON. Do not include any explanatory text, markdown code blocks, or additional commentary outside the JSON structure. Your entire response must be parseable as JSON.**
+
 Provide your revised analysis using your standard output format with additional refinement metadata:
 
 ```json
@@ -1069,10 +1078,7 @@ core_data_flow_refinement_schema = {
                     "type": "string"
                   },
                   "scope": {
-                    "type": "array",
-                    "items": {
-                      "type": "string"
-                    }
+                    "type": "string"
                   },
                   "expiration_rules": {
                     "type": "array",
@@ -1122,7 +1128,7 @@ core_data_flow_refinement_schema = {
                       "type": "string"
                     },
                     "response_structure": {
-                      "type": "object"
+                      "type": "string"
                     }
                   },
                   "required": ["endpoint", "format", "response_structure"]

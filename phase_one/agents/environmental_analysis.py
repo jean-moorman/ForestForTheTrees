@@ -6,7 +6,7 @@ from typing import Dict, Any
 from datetime import datetime
 
 from resources import EventQueue, StateManager, AgentContextManager, CacheManager, MetricsManager, ErrorHandler
-from resources.monitoring import MemoryMonitor, MemoryThresholds, HealthTracker, CircuitOpenError
+from resources.monitoring import MemoryMonitor, MemoryThresholds, HealthTracker
 
 from phase_one.agents.base import ReflectiveAgent
 from phase_one.models.enums import DevelopmentState
@@ -37,15 +37,7 @@ class EnvironmentalAnalysisAgent(ReflectiveAgent):
             initial_prompt_name="initial_core_requirements_prompt"
         )
         
-        # Define circuit breakers
-        circuit_breakers = [
-            CircuitBreakerDefinition(
-                name="analysis",
-                failure_threshold=3,
-                recovery_timeout=30,
-                failure_window=120
-            )
-        ]
+        # Circuit breaker definitions removed - protection now at API level
         
         # Initialize base class with configuration
         super().__init__(
@@ -53,7 +45,6 @@ class EnvironmentalAnalysisAgent(ReflectiveAgent):
             event_queue, state_manager, context_manager, cache_manager, metrics_manager, error_handler, 
             memory_monitor,
             prompt_config,
-            circuit_breakers,
             health_tracker
         )
         
@@ -87,19 +78,18 @@ class EnvironmentalAnalysisAgent(ReflectiveAgent):
             try:
                 self.development_state = DevelopmentState.ANALYZING
                 
-                initial_analysis = await self.get_circuit_breaker("analysis").execute(
-                    lambda: self.process_with_validation(
-                        conversation=f"Analyze environment based on: {garden_planner_output}",
-                        system_prompt_info=(self._prompt_config.system_prompt_base_path, 
-                                          self._prompt_config.initial_prompt_name)
-                    )
+                # Direct processing - circuit breaker protection now at API level
+                initial_analysis = await self.process_with_validation(
+                    conversation=f"Analyze environment based on: {garden_planner_output}",
+                    system_prompt_info=(self._prompt_config.system_prompt_base_path, 
+                                      self._prompt_config.initial_prompt_name)
                 )
-            except CircuitOpenError:
-                logger.warning(f"Analysis circuit open for agent {self.interface_id}, processing rejected")
+            except Exception as e:
+                logger.error(f"Analysis failed for agent {self.interface_id}: {str(e)}")
                 self.development_state = DevelopmentState.ERROR
                 return {
-                    "error": "Analysis rejected due to circuit breaker open",
-                    "status": "failure",
+                    "error": f"Analysis failed: {str(e)}",
+                    "status": "failure", 
                     "agent_id": self.interface_id,
                     "timestamp": datetime.now().isoformat()
                 }

@@ -33,11 +33,41 @@ class EventQueue:
     """
     def __init__(self, max_size: int = 1000, queue_id: Optional[str] = None):
         # Queue configuration
+        # Add type conversion and validation to prevent string issues
+        if isinstance(max_size, str):
+            try:
+                max_size = int(max_size)
+                logger.warning(f"EventQueue max_size was passed as string '{max_size}', converted to int")
+            except ValueError:
+                logger.error(f"EventQueue max_size string '{max_size}' cannot be converted to int, using default 1000")
+                max_size = 1000
+        elif not isinstance(max_size, int):
+            logger.error(f"EventQueue max_size must be int, got {type(max_size)}, using default 1000")
+            max_size = 1000
+        
         self._max_size = max_size
         self._id = queue_id or f"event_queue_{id(self)}"
         
         # Thread synchronization mechanism
         self._queue_lock = threading.RLock()
+        
+        # Event processing tracking for aggregated logging
+        self._processed_count = 0
+        self._last_log_count = 0
+        self._log_batch_size = 20  # Log summary every N events
+        
+        # Event throttling for initialization spam prevention
+        self._throttling_enabled = True
+        self._throttle_window = 5.0  # seconds
+        self._throttle_max_per_window = 50  # max events per type per window (increased from 10)
+        self._throttle_counts = {}  # event_type -> [(timestamp, count), ...]
+        self._throttle_lock = threading.RLock()
+        
+        # Batch similar events during initialization
+        self._batch_similar_events = True
+        self._batch_buffer = {}  # event_type -> [events]
+        self._batch_flush_interval = 1.0  # seconds
+        self._last_batch_flush = time.time()
         
         # Priority queues - these are implementation details and lazily initialized
         # We use standard threading.Queue for thread-safety rather than asyncio.Queue
@@ -237,22 +267,38 @@ class EventQueue:
         except ImportError:
             event_id = f"event_{random.randint(10000, 99999)}"
         
-        # Create the event object
+        # Create the event object - ensure priority handling is consistent
+        # Convert priority to string for internal use
+        if isinstance(priority, str):
+            priority_str = priority
+        elif hasattr(priority, 'value'):
+            priority_str = priority.value
+        else:
+            priority_str = str(priority)
+            
         event = Event(
             event_type=event_type_str,
             data=data,
             correlation_id=correlation_id,
-            priority=priority,
+            priority=priority_str,  # Pass as string to avoid enum comparison issues
             metadata={"event_id": event_id}
         )
         
+        # Apply event throttling for initialization spam prevention
+        if self._throttling_enabled and self._should_throttle_event(event_type_str):
+            return False
+        
+        # Check for event batching opportunity
+        if self._batch_similar_events and self._should_batch_event(event_type_str):
+            return self._add_to_batch(event)
+        
         # Check rate limiting before queue insertion
-        if not self._backpressure_manager.check_rate_limit(event.event_type, event.priority):
+        if not self._backpressure_manager.check_rate_limit(event.event_type, priority_str):
             return False
         
         # Adjust priority based on system load
         adjusted_priority = self._backpressure_manager.get_adjusted_priority(
-            event.event_type, event.priority
+            event.event_type, priority_str
         )
         
         # Check if event should be rejected due to backpressure
@@ -265,10 +311,11 @@ class EventQueue:
         
         # The key change: thread-safe emission using standard Python queue
         try:
-            # Select target queue based on priority
-            if event.priority == "high":
+            # Select target queue based on adjusted priority (which is guaranteed to be a string)
+            final_priority = adjusted_priority
+            if final_priority == "high":
                 target_queue = self.high_priority_queue
-            elif event.priority == "low":
+            elif final_priority == "low":
                 target_queue = self.low_priority_queue
             else:
                 target_queue = self.normal_priority_queue
@@ -282,15 +329,111 @@ class EventQueue:
                 if len(self._event_history) > 10000:
                     self._event_history = self._event_history[-10000:]
             
-            logger.debug(f"Emitted {event.priority} priority event {event.event_type} to queue {self._id}")
+            logger.debug(f"Emitted {final_priority} priority event {event.event_type} to queue {self._id}")
             return True
             
         except queue.Full:
-            logger.warning(f"Queue full, rejecting {event.priority} priority event {event.event_type}")
+            logger.warning(f"Queue full, rejecting {final_priority} priority event {event.event_type}")
             return False
         except Exception as e:
             logger.error(f"Failed to emit event {event.event_type}: {e}")
             return False
+    
+    def _should_throttle_event(self, event_type: str) -> bool:
+        """Check if an event should be throttled based on recent emission frequency."""
+        if not self._throttling_enabled:
+            return False
+            
+        current_time = time.time()
+        
+        with self._throttle_lock:
+            # Clean up old entries
+            cutoff_time = current_time - self._throttle_window
+            if event_type in self._throttle_counts:
+                self._throttle_counts[event_type] = [
+                    (timestamp, count) for timestamp, count in self._throttle_counts[event_type]
+                    if timestamp > cutoff_time
+                ]
+            
+            # Count recent events
+            if event_type not in self._throttle_counts:
+                self._throttle_counts[event_type] = []
+            
+            recent_count = sum(count for _, count in self._throttle_counts[event_type])
+            
+            if recent_count >= self._throttle_max_per_window:
+                # Log throttling decision
+                if recent_count == self._throttle_max_per_window:
+                    logger.warning(f"Throttling event type {event_type} (reached limit of {self._throttle_max_per_window} events in {self._throttle_window}s window)")
+                return True
+            
+            # Record this event
+            self._throttle_counts[event_type].append((current_time, 1))
+            return False
+    
+    def _should_batch_event(self, event_type: str) -> bool:
+        """Check if an event type should be batched during initialization."""
+        # Batch system health and state change events during initialization
+        batch_event_types = [
+            "system_health_changed",
+            "resource_state_changed", 
+            "metric_recorded",
+            "circuit_breaker_registered",
+            "circuit_breaker_state_changed"
+        ]
+        return any(batch_type in event_type for batch_type in batch_event_types)
+    
+    def _add_to_batch(self, event: Event) -> bool:
+        """Add event to batch buffer for later processing."""
+        with self._queue_lock:
+            if event.event_type not in self._batch_buffer:
+                self._batch_buffer[event.event_type] = []
+            
+            self._batch_buffer[event.event_type].append(event)
+            
+            # Check if it's time to flush batches
+            current_time = time.time()
+            if current_time - self._last_batch_flush >= self._batch_flush_interval:
+                self._flush_batches()
+                self._last_batch_flush = current_time
+            
+            return True
+    
+    def _flush_batches(self) -> None:
+        """Flush batched events as summary events."""
+        for event_type, events in self._batch_buffer.items():
+            if not events:
+                continue
+                
+            # Create a summary event instead of individual events
+            summary_data = {
+                "event_type": event_type,
+                "batch_count": len(events),
+                "batch_window": self._batch_flush_interval,
+                "first_event_time": events[0].metadata.get("timestamp", time.time()),
+                "last_event_time": events[-1].metadata.get("timestamp", time.time()),
+                "summary": f"Batched {len(events)} {event_type} events"
+            }
+            
+            # Create summary event with lower priority
+            summary_event = Event(
+                event_type=f"{event_type}_batch_summary",
+                data=summary_data,
+                correlation_id=None,
+                priority="low",
+                metadata={"batch_summary": True, "original_count": len(events)}
+            )
+            
+            # Add directly to queue without further processing
+            try:
+                target_queue = self.low_priority_queue
+                target_queue.put_nowait(summary_event)
+                logger.debug(f"Flushed batch of {len(events)} {event_type} events as summary")
+            except queue.Full:
+                logger.warning(f"Could not flush batch for {event_type} - queue full")
+        
+        # Clear the batch buffer
+        self._batch_buffer.clear()
     
     async def emit_with_docs(
         self, 
@@ -563,14 +706,14 @@ class EventQueue:
                         self._async_high_queue.get(), 
                         timeout=0.1
                     )
-                    logger.debug(f"Processing high priority event: {high_priority_event.event_type}")
                     await self._process_single_event(high_priority_event)
                     self._async_high_queue.task_done()
+                    self._track_event_processed()
                     consecutive_errors = 0
                     continue  # Continue loop to keep checking high priority first
                 except asyncio.TimeoutError:
                     # No high priority events, continue to normal priority
-                    logger.debug("No high priority events")
+                    pass
                     
                     # Try to process normal priority events with batching
                     try:
@@ -607,8 +750,10 @@ class EventQueue:
                         
                         # Process the batch
                         if batch:
-                            logger.debug(f"Processing batch of {len(batch)} events")
                             await self._process_event_batch(batch)
+                            # Track each event in the batch
+                            for _ in batch:
+                                self._track_event_processed()
                             batch = []
                             last_event_type = None
                             consecutive_errors = 0
@@ -671,6 +816,7 @@ class EventQueue:
                         )
                         await self._process_single_event(low_event)
                         self._async_low_queue.task_done()
+                        self._track_event_processed()
                         consecutive_errors = 0
                     except (asyncio.TimeoutError, asyncio.QueueEmpty):
                         # No events in any queue, sleep briefly
@@ -725,16 +871,58 @@ class EventQueue:
         
         # Find subscribers
         with self._queue_lock:
-            handlers = set(self._subscribers.get(event_type, set()))
+            raw_handlers = self._subscribers.get(event_type, set())
+            # Filter out None handlers and log if any are found
+            handlers = set()
+            none_count = 0
+            for h in raw_handlers:
+                if h is None:
+                    none_count += 1
+                else:
+                    handlers.add(h)
             
-        logger.debug(f"Found {len(handlers)} subscribers for batch of {event_type} events")
+            if none_count > 0:
+                logger.warning(f"Filtered out {none_count} None handlers for event type {event_type}")
+                # Clean up the source set
+                self._subscribers[event_type] = {h for h in raw_handlers if h is not None}
             
-        # Deliver to all subscribers
+        logger.debug(f"Found {len(handlers)} valid subscribers for batch of {event_type} events")
+        
+        # Early return if no valid handlers
+        if not handlers:
+            return
+            
+        # Deliver to all subscribers (double-check for None)
         for handler in handlers:
+            if handler is None:
+                logger.error(f"ERROR: None handler still found after filtering for event type {event_type}")
+                continue
             try:
+                # Immediate check before awaiting - this should never happen but let's be extra safe
+                if handler is None:
+                    logger.error(f"CRITICAL: None handler found immediately before await for {event_type}")
+                    continue
+                    
+                if not callable(handler):
+                    logger.error(f"CRITICAL: Non-callable handler found for {event_type}: {type(handler)} = {handler}")
+                    continue
+                    
                 # Call the handler with the batch payload
                 logger.debug(f"Delivering batch to handler {handler}")
-                await handler(event_type, batch_payload)
+                try:
+                    await handler(event_type, batch_payload)
+                except TypeError as te:
+                    if "object NoneType can't be used in 'await' expression" in str(te):
+                        logger.warning(f"Handler became None during processing for {event_type}: {handler} (type: {type(handler)})")
+                        logger.warning("This may indicate object cleanup during event processing - skipping this handler")
+                        # Clean up this None handler from the subscribers
+                        with self._queue_lock:
+                            if event_type in self._subscribers:
+                                self._subscribers[event_type].discard(None)
+                                self._subscribers[event_type].discard(handler)
+                        continue
+                    else:
+                        raise  # Re-raise other TypeErrors
             except Exception as e:
                 logger.error(f"Error in batch event handler: {e}", exc_info=True)
     
@@ -745,28 +933,25 @@ class EventQueue:
         Args:
             event: The event to process
         """
-        logger.debug(f"Processing single event: {event.event_type}")
-        
         # Get subscribers for this event type - thread-safe copy
         subscribers = []
         with self._queue_lock:
             if event.event_type in self._subscribers:
-                subscribers = list(self._subscribers[event.event_type])
+                # Filter out None handlers at the source
+                subscribers = [s for s in self._subscribers[event.event_type] if s is not None]
         
         if not subscribers:
-            logger.debug(f"No subscribers for event type: {event.event_type}")
             return
-        
-        logger.debug(f"Found {len(subscribers)} subscribers for {event.event_type}")
         
         # Process event for each subscriber with error isolation
         for callback in subscribers:
+            if callback is None:
+                logger.warning(f"Skipping None callback for event type {event.event_type}")
+                continue
             # Generate a unique event_id for retry tracking
             event_id = f"{event.event_type}_{id(callback)}_{datetime.now().timestamp()}"
-            logger.debug(f"Delivering event {event_id} to callback {callback}")
             try:
                 await self._deliver_event(event, callback, event_id)
-                logger.debug(f"Event {event_id} delivered successfully")
             except Exception as e:
                 logger.error(f"Error in event delivery for {event.event_type}: {e}")
                 # Continue to next subscriber
@@ -784,6 +969,14 @@ class EventQueue:
                 return
             
             logger.info(f"Stopping event queue {self._id}")
+            
+            # Flush any remaining batched events before stopping
+            if self._batch_buffer:
+                self._flush_batches()
+                logger.info(f"Flushed remaining batched events before stopping queue {self._id}")
+            
+            # Log processing summary before stopping
+            self.log_processing_summary()
             
             # Signal stop
             self._running = False
@@ -828,7 +1021,9 @@ class EventQueue:
         """
         # Input validation
         if event_type is None or callback is None or not callable(callback):
+            import traceback
             logger.error(f"Invalid subscription parameters: event_type={event_type}, callback={callback}")
+            logger.error(f"Stack trace:\n{''.join(traceback.format_stack())}")
             return
         
         # Convert enum to string if needed
@@ -841,12 +1036,33 @@ class EventQueue:
             if event_type not in self._subscribers:
                 self._subscribers[event_type] = set()
             
+            # Clean up any None handlers that might have gotten in somehow
+            self._subscribers[event_type].discard(None)
+            
+            # Comprehensive cleanup check periodically
+            if len(self._subscribers) % 10 == 0:  # Every 10th subscription
+                self._cleanup_none_handlers()
+            
             # Add subscriber
             self._subscribers[event_type].add(callback)
         
         # Check if callback is a coroutine function for logging
         is_coroutine = asyncio.iscoroutinefunction(callback)
         logger.debug(f"Added subscriber for {event_type} events (coroutine={is_coroutine})")
+    
+    def _cleanup_none_handlers(self):
+        """Clean up any None handlers that might have gotten into the subscribers"""
+        cleaned_count = 0
+        with self._queue_lock:
+            for event_type in list(self._subscribers.keys()):
+                initial_size = len(self._subscribers[event_type])
+                self._subscribers[event_type] = {h for h in self._subscribers[event_type] if h is not None}
+                final_size = len(self._subscribers[event_type])
+                if initial_size != final_size:
+                    cleaned_count += (initial_size - final_size)
+        
+        if cleaned_count > 0:
+            logger.warning(f"Cleaned up {cleaned_count} None handlers from subscriber sets")
     
     async def unsubscribe(self, 
                          event_type: str, 
@@ -912,19 +1128,50 @@ class EventQueue:
         # Attempt delivery with retries
         for attempt in range(self._max_retries + 1):  # 0, 1, 2, 3 (4 total attempts)
             try:
+                # Check for None callback before attempting to call
+                if callback is None:
+                    logger.warning(f"Cannot deliver event {event.event_type}: callback is None")
+                    return
+                    
                 # Direct async call to the callback
                 if asyncio.iscoroutinefunction(callback):
                     logger.debug(f"Calling async callback {callback} with {event.event_type}")
-                    await callback(event.event_type, event.data)
+                    try:
+                        await callback(event.event_type, event.data)
+                    except TypeError as te:
+                        if "object NoneType can't be used in 'await' expression" in str(te):
+                            logger.warning(f"Callback became None during processing for {event.event_type}: {callback} (type: {type(callback)})")
+                            logger.warning("This may indicate object cleanup during event processing - skipping this callback")
+                            # Clean up this None handler from the subscribers
+                            with self._queue_lock:
+                                if event.event_type in self._subscribers:
+                                    self._subscribers[event.event_type].discard(None)
+                                    self._subscribers[event.event_type].discard(callback)
+                            return  # Skip this callback
+                        else:
+                            raise  # Re-raise other TypeErrors
                     logger.debug(f"Async callback completed for {event.event_type}")
                 else:
                     # If not async, run in executor to avoid blocking
                     logger.debug(f"Calling sync callback {callback} with {event.event_type}")
                     loop = asyncio.get_event_loop()
-                    await loop.run_in_executor(
-                        None, 
-                        lambda: callback(event.event_type, event.data)
-                    )
+                    try:
+                        await loop.run_in_executor(
+                            None, 
+                            lambda: callback(event.event_type, event.data)
+                        )
+                    except TypeError as te:
+                        if "object NoneType can't be used in 'await' expression" in str(te):
+                            logger.warning(f"Callback became None during processing for {event.event_type}: {callback} (type: {type(callback)})")
+                            logger.warning("This may indicate object cleanup during event processing - skipping this callback")
+                            # Clean up this None handler from the subscribers
+                            with self._queue_lock:
+                                if event.event_type in self._subscribers:
+                                    self._subscribers[event.event_type].discard(None)
+                                    self._subscribers[event.event_type].discard(callback)
+                            return  # Skip this callback
+                        else:
+                            raise  # Re-raise other TypeErrors
                     logger.debug(f"Sync callback completed for {event.event_type}")
                 
                 # Success
@@ -1015,6 +1262,28 @@ class EventQueue:
             events = [e for e in events if e.event_type == event_type]
             
         return events[-limit:]
+    
+    def _track_event_processed(self) -> None:
+        """Track processed events and log summaries."""
+        self._processed_count += 1
+        
+        # Log summary every N events
+        if self._processed_count - self._last_log_count >= self._log_batch_size:
+            recent_count = self._processed_count - self._last_log_count
+            logger.info(f"Event queue {self._id}: Processed {recent_count} events "
+                       f"(total: {self._processed_count})")
+            self._last_log_count = self._processed_count
+    
+    def log_processing_summary(self) -> None:
+        """Log final summary of event processing."""
+        if self._processed_count > 0:
+            # Log any remaining events since last summary
+            remaining_count = self._processed_count - self._last_log_count
+            if remaining_count > 0:
+                logger.info(f"Event queue {self._id}: Processed {remaining_count} events "
+                           f"(total: {self._processed_count})")
+            
+            logger.info(f"Event queue {self._id}: Total {self._processed_count} events processed")
 
 # Import needed for backwards compatibility 
 import queue

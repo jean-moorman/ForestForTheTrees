@@ -1,13 +1,14 @@
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Any
 
 from resources import EventQueue, StateManager, AgentContextManager, CacheManager, MetricsManager, ErrorHandler, HealthTracker
 from resources.monitoring import MemoryMonitor
 from phase_zero.base import BaseAnalysisAgent
+from phase_zero.prompt_loader import prompt_loader, AgentType, PromptType
 
 # Agent focused on optimizing components based on phase one outputs
 
 class PollinatorAgent(BaseAnalysisAgent):
-    """Identifies component optimization opportunities in phase one outputs."""
+    """Enhanced cross-guideline optimization analysis."""
     
     def __init__(self, event_queue: EventQueue,
                 state_manager: StateManager,
@@ -19,13 +20,34 @@ class PollinatorAgent(BaseAnalysisAgent):
                  memory_monitor: Optional[MemoryMonitor] = None):
         super().__init__("pollinator", event_queue, state_manager, context_manager, cache_manager, 
                         metrics_manager, error_handler, health_tracker, memory_monitor)
+        self._current_prompt_type = PromptType.PHASE_ONE_INITIAL
         
     def get_output_schema(self) -> Dict:
         return {
-            "component_optimization_opportunities": {
-                "redundant_implementations": List[Dict],
-                "reuse_opportunities": List[Dict],
-                "service_consolidation": List[Dict],
-                "abstraction_opportunities": List[Dict]
+            "cross_guideline_optimization": {
+                "alignment_opportunities": List[Dict],
+                "optimization_patterns": List[Dict],
+                "redundancy_reductions": List[Dict],
+                "integration_enhancements": List[Dict],
+                "holistic_improvements": List[Dict],
+                "synthesis": {
+                    "high_impact_low_effort": List[Dict],
+                    "high_impact_medium_effort": List[Dict],
+                    "recommended_priorities": List[Dict]
+                }
             }
         }
+    
+    async def process_with_validation(self, conversation: str, schema: Dict, 
+                                    current_phase: Optional[str] = None,
+                                    metadata: Optional[Dict] = None) -> Dict[str, Any]:
+        """Process using system prompt with validation."""
+        system_prompt = prompt_loader.get_prompt(AgentType.POLLINATOR, self._current_prompt_type)
+        if system_prompt:
+            enhanced_conversation = f"{system_prompt}\n\n## Analysis Input\n{conversation}"
+        else:
+            enhanced_conversation = conversation
+        
+        return await super().process_with_validation(
+            enhanced_conversation, schema, current_phase, metadata
+        )

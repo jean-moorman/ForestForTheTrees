@@ -37,15 +37,7 @@ class GardenPlannerAgent(ReflectiveAgent):
             initial_prompt_name="initial_task_elaboration_prompt"
         )
         
-        # Define circuit breakers
-        circuit_breakers = [
-            CircuitBreakerDefinition(
-                name="analysis",
-                failure_threshold=3,
-                recovery_timeout=30,
-                failure_window=120
-            )
-        ]
+        # Circuit breaker definitions removed - protection now at API level
         
         # Initialize base class with configuration
         super().__init__(
@@ -53,7 +45,6 @@ class GardenPlannerAgent(ReflectiveAgent):
             event_queue, state_manager, context_manager, cache_manager, metrics_manager, error_handler, 
             memory_monitor,
             prompt_config,
-            circuit_breakers,
             health_tracker
         )
         
@@ -81,12 +72,13 @@ class GardenPlannerAgent(ReflectiveAgent):
             
             # Process initial analysis with circuit breaker protection
             try:
-                initial_analysis = await self.get_circuit_breaker("analysis").execute(
-                    lambda: self.process_with_validation(
-                        conversation=f"Analyze task requirements: {task_prompt}",
-                        system_prompt_info=(self._prompt_config.system_prompt_base_path, 
-                                          self._prompt_config.initial_prompt_name)
-                    )
+                logger.info(f"Garden planner system_prompt_base_path: {self._prompt_config.system_prompt_base_path}")
+                logger.info(f"Garden planner initial_prompt_name: {self._prompt_config.initial_prompt_name}")
+                # Direct processing - circuit breaker protection now at API level
+                initial_analysis = await self.process_with_validation(
+                    conversation=f"Analyze task requirements: {task_prompt}",
+                    system_prompt_info=(self._prompt_config.system_prompt_base_path, 
+                                      self._prompt_config.initial_prompt_name)
                 )
             except Exception as e:
                 logger.warning(f"Analysis circuit open for agent {self.interface_id}, processing rejected")

@@ -112,7 +112,9 @@ Impact Indicators (presence increases severity):
    - Error budget depletion rate
    - Component response time increases
 
-## Response Format
+## Output Format
+**CRITICAL: You must return ONLY valid JSON. Do not include any explanatory text, markdown code blocks, or additional commentary outside the JSON structure. Your entire response must be parseable as JSON.**
+
 ```json
 {"flag_raised": "boolean","flag_type": "string", "affected_components": ["strings"],"metrics_snapshot": {"error_rate": number,"resource_usage": number,"development_state": "string","component_health": "string"},"primary_triggers": ["strings"],"contributing_factors": ["strings"]}
 ```
@@ -324,7 +326,9 @@ Select rollback_failed_changes if:
   - Data consistency
   - Service disruption
 
-## Response Format
+## Output Format
+**CRITICAL: You must return ONLY valid JSON. Do not include any explanatory text, markdown code blocks, or additional commentary outside the JSON structure. Your entire response must be parseable as JSON.**
+
 ```json
 {"recommended_action": "string","required_components": ["strings"],"fallback_action": "string","decision_context": {"primary_trigger": "string","contributing_factors": ["strings"],"risk_assessment": "string","success_likelihood": number}}
 ```

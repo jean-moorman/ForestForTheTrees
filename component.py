@@ -735,7 +735,9 @@ def validate_data_flow_against_components(
 
 def register_component_metrics(component: Component) -> None:
     """Register monitoring metrics for component."""
-    resource_manager = StateManager("main_interface")
+    from resources.events import EventQueue
+    event_queue = EventQueue()
+    resource_manager = StateManager(event_queue)
     
     # Register feature metrics
     resource_manager.record_metric(
@@ -804,7 +806,9 @@ def monitor_component_changes(component: Component) -> None:
             logger.info(f"Component change event: {data}")
             register_component_metrics(component)
     
-    resource_manager = StateManager("main_interface")
+    from resources.events import EventQueue
+    event_queue = EventQueue()
+    resource_manager = StateManager(event_queue)
     resource_manager.subscribe_to_events("component_feature_added", 
                                        component_change_callback)
     resource_manager.subscribe_to_events("component_integration_added", 

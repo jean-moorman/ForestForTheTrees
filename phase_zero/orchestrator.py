@@ -10,13 +10,13 @@ from resources import (
     SystemMonitorConfig, HealthStatus
 )
 from resources.monitoring import CircuitBreaker, MemoryMonitor, CircuitOpenError
-from phase_one import PhaseZeroInterface
+from interfaces.phase_interfaces import PhaseZeroInterface
 
 from phase_zero.agents.monitoring import MonitoringAgent
-from phase_zero.agents.description_analysis import SunAgent, ShadeAgent, WindAgent
-from phase_zero.agents.requirement_analysis import SoilAgent, MicrobialAgent, RainAgent
-from phase_zero.agents.data_flow import RootSystemAgent, MycelialAgent, WormAgent
-from phase_zero.agents.structural import InsectAgent, BirdAgent, TreeAgent
+from phase_zero.agents.description_analysis import SunAgent, ShadeAgent
+from phase_zero.agents.requirement_analysis import SoilAgent, MicrobialAgent
+from phase_zero.agents.data_flow import MycelialAgent, WormAgent
+from phase_zero.agents.structural import BirdAgent, TreeAgent
 from phase_zero.agents.optimization import PollinatorAgent
 from phase_zero.agents.synthesis import EvolutionAgent
 from phase_zero.utils import with_timeout, get_system_state, execute_agent_with_monitoring
@@ -124,16 +124,7 @@ class PhaseZeroOrchestrator(PhaseZeroInterface):
             memory_monitor=self._memory_monitor
         )
         
-        self.wind_agent = WindAgent(
-            self._event_queue,
-            self._state_manager,
-            self._context_manager,
-            self._cache_manager,
-            self._metrics_manager,
-            self._error_handler,
-            health_tracker=self._health_tracker,
-            memory_monitor=self._memory_monitor
-        )
+        # WindAgent eliminated - conflict analysis now handled by ShadeAgent
         
         # Requirement analysis agents
         self.soil_agent = SoilAgent(
@@ -158,28 +149,10 @@ class PhaseZeroOrchestrator(PhaseZeroInterface):
             memory_monitor=self._memory_monitor
         )
         
-        self.rain_agent = RainAgent(
-            self._event_queue,
-            self._state_manager,
-            self._context_manager,
-            self._cache_manager,
-            self._metrics_manager,
-            self._error_handler,
-            health_tracker=self._health_tracker,
-            memory_monitor=self._memory_monitor
-        )
+        # RainAgent eliminated - issue analysis now handled by SoilAgent
 
         # Data flow analysis agents
-        self.root_system_agent = RootSystemAgent(
-            self._event_queue,
-            self._state_manager,
-            self._context_manager,
-            self._cache_manager,
-            self._metrics_manager,
-            self._error_handler,
-            health_tracker=self._health_tracker,
-            memory_monitor=self._memory_monitor
-        )
+        # RootSystemAgent eliminated - gap analysis now handled by WormAgent
         
         self.mycelial_agent = MycelialAgent(
             self._event_queue,
@@ -204,16 +177,7 @@ class PhaseZeroOrchestrator(PhaseZeroInterface):
         )
         
         # Structural component analysis agents
-        self.insect_agent = InsectAgent(
-            self._event_queue,
-            self._state_manager,
-            self._context_manager,
-            self._cache_manager,
-            self._metrics_manager,
-            self._error_handler,
-            health_tracker=self._health_tracker,
-            memory_monitor=self._memory_monitor
-        )
+        # InsectAgent eliminated - gap analysis now handled by TreeAgent
         
         self.bird_agent = BirdAgent(
             self._event_queue,
@@ -264,10 +228,10 @@ class PhaseZeroOrchestrator(PhaseZeroInterface):
         # Register agent circuit breakers with system monitor
         if self._system_monitor:
             for agent in [self.monitoring_agent, 
-                        self.sun_agent, self.shade_agent, self.wind_agent,
-                        self.soil_agent, self.microbial_agent, self.rain_agent,
-                        self.root_system_agent, self.mycelial_agent, self.worm_agent,
-                        self.insect_agent, self.bird_agent, self.tree_agent,
+                        self.sun_agent, self.shade_agent,
+                        self.soil_agent, self.microbial_agent,
+                        self.mycelial_agent, self.worm_agent,
+                        self.bird_agent, self.tree_agent,
                         self.pollinator_agent, self.evolution_agent]:
                 # Register all circuit breakers for each agent
                 for cb_name, cb in agent._circuit_breakers.items():
@@ -287,12 +251,12 @@ class PhaseZeroOrchestrator(PhaseZeroInterface):
                 "timestamp": datetime.now().isoformat(),
                 "agents": [
                     "monitoring", 
-                    "sun", "shade", "wind",  # Initial description analysis
-                    "soil", "microbial", "rain",  # Requirement analysis
-                    "root_system", "mycelial", "worm",  # Data flow analysis
-                    "insect", "bird", "tree",  # Structural component analysis
-                    "pollinator",  # Optimization analysis
-                    "evolution"  # Synthesis
+                    "sun", "shade",  # Dual-perspective description analysis (eliminated: wind)
+                    "soil", "microbial",  # Dual-perspective requirement analysis (eliminated: rain)
+                    "mycelial", "worm",  # Dual-perspective data flow analysis (eliminated: root_system)
+                    "bird", "tree",  # Dual-perspective structural analysis (eliminated: insect)
+                    "pollinator",  # Enhanced cross-guideline optimization
+                    "evolution"  # Enhanced dual-perspective synthesis
                 ]
             },
             resource_type=ResourceType.STATE
@@ -443,18 +407,14 @@ class PhaseZeroOrchestrator(PhaseZeroInterface):
                     "error": str(e)
                 }
             
-            # Run parallel agent analysis
+            # Run parallel agent analysis (eliminated agents: wind, rain, root_system, insect)
             agents_to_execute = {
                 "sun": self.sun_agent,
                 "shade": self.shade_agent,
-                "wind": self.wind_agent,
                 "soil": self.soil_agent,
                 "microbial": self.microbial_agent,
-                "rain": self.rain_agent,
-                "root_system": self.root_system_agent,
                 "mycelial": self.mycelial_agent,
                 "worm": self.worm_agent,
-                "insect": self.insect_agent,
                 "bird": self.bird_agent,
                 "tree": self.tree_agent,
                 "pollinator": self.pollinator_agent

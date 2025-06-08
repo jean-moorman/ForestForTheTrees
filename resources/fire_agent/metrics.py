@@ -14,7 +14,8 @@ from .models import (
     DecompositionResult,
     ComplexityCause,
     ComplexityLevel,
-    ComplexityThreshold
+    ComplexityThreshold,
+    DecompositionStrategy
 )
 
 logger = logging.getLogger(__name__)
@@ -721,7 +722,7 @@ def _calculate_cross_cutting_score(data_structure: Dict[str, Any]) -> float:
     content = str(data_structure).lower()
     found_concerns = sum(1 for keyword in cross_cutting_keywords if keyword in content)
     
-    return min(found_concerns * 12, 100)
+    return min(found_concerns * 20, 100)  # Increased multiplier for better detection
 
 
 def _calculate_conflict_score(data_structure: Dict[str, Any]) -> float:

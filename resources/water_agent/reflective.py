@@ -6,6 +6,7 @@ to standardize the reflection and refinement process across all agents.
 """
 
 import logging
+import json
 import uuid
 from typing import Dict, Any, Optional
 from datetime import datetime
@@ -145,27 +146,33 @@ class WaterAgentReflective(ReflectiveAgent):
             
             # Store context in state
             await self._state_manager.set_state(
-                f"water_agent:detection_context:{detection_id}",
-                detection_context,
-                ResourceType="STATE"
+                resource_id=f"water_agent:detection_context:{detection_id}",
+                state=detection_context,
+                resource_type="STATE"
             )
             
-            # Format the detection prompt
-            formatted_prompt = MISUNDERSTANDING_DETECTION_PROMPT.format(
-                first_agent_output=first_agent_output,
-                second_agent_output=second_agent_output
-            )
+            # Prepare conversation data (following standard agent pattern)
+            conversation_data = {
+                "task": "Detect potential misunderstandings between sequential agent outputs",
+                "first_agent_output": first_agent_output,
+                "second_agent_output": second_agent_output,
+                "detection_context": detection_context
+            }
+            conversation = json.dumps(conversation_data, indent=2)
             
             # Process detection with circuit breaker protection
             try:
                 # Perform misunderstanding detection using misunderstanding_detection_prompt
-                detection_result = await self.get_circuit_breaker("detection").execute(
+                raw_detection_result = await self.get_circuit_breaker("detection").execute(
                     lambda: self.process_with_validation(
-                        conversation=formatted_prompt,
+                        conversation=conversation,
                         system_prompt_info=(self._prompt_config.system_prompt_base_path, 
                                           self._prompt_config.initial_prompt_name)
                     )
                 )
+                
+                # Parse and validate the detection result
+                detection_result = self._parse_detection_result(raw_detection_result)
                 
                 # Apply reflection and revision if enabled
                 if use_reflection:
@@ -281,15 +288,15 @@ class WaterAgentReflective(ReflectiveAgent):
             
             # Store reflection and revision results in state
             await self._state_manager.set_state(
-                f"water_agent:reflection:{detection_context.get('detection_id')}_{self.current_reflection_cycle}",
-                reflection_result,
-                ResourceType="STATE"
+                resource_id=f"water_agent:reflection:{detection_context.get('detection_id')}_{self.current_reflection_cycle}",
+                state=reflection_result,
+                resource_type="STATE"
             )
             
             await self._state_manager.set_state(
-                f"water_agent:revision:{detection_context.get('detection_id')}_{self.current_reflection_cycle}",
-                revision_result,
-                ResourceType="STATE"
+                resource_id=f"water_agent:revision:{detection_context.get('detection_id')}_{self.current_reflection_cycle}",
+                state=revision_result,
+                resource_type="STATE"
             )
             
             # Check if we should perform another reflection cycle
@@ -318,3 +325,109 @@ class WaterAgentReflective(ReflectiveAgent):
     async def refine(self, output: Dict[str, Any], refinement_guidance: Dict[str, Any]) -> Dict[str, Any]:
         """Delegate to standardized refinement method."""
         return await self.standard_refine(output, refinement_guidance, "detection")
+    
+    def _parse_detection_result(self, raw_result: Any) -> Dict[str, Any]:
+        """
+        Parse and validate detection result from various formats.
+        
+        Args:
+            raw_result: Raw result from process_with_validation
+            
+        Returns:
+            Standardized detection result dictionary
+        """
+        try:
+            # Handle different response formats
+            if isinstance(raw_result, dict):
+                # Check if it's already a valid detection result
+                if all(key in raw_result for key in ["misunderstandings", "first_agent_questions", "second_agent_questions"]):
+                    return raw_result
+                    
+                # Extract from nested structure
+                if "content" in raw_result:
+                    return self._parse_json_string(raw_result["content"])
+                elif "response" in raw_result:
+                    return self._parse_json_string(raw_result["response"])
+                else:
+                    # Try to parse the whole dict as detection result
+                    return self._validate_detection_structure(raw_result)
+                    
+            elif isinstance(raw_result, str):
+                return self._parse_json_string(raw_result)
+            else:
+                logger.warning(f"Unexpected detection result type: {type(raw_result)}")
+                return self._default_detection_result()
+                
+        except Exception as e:
+            logger.error(f"Error parsing detection result: {str(e)}")
+            return {
+                "error": f"Detection parsing error: {str(e)}",
+                "misunderstandings": [],
+                "first_agent_questions": [],
+                "second_agent_questions": []
+            }
+    
+    def _parse_json_string(self, json_str: str) -> Dict[str, Any]:
+        """Parse JSON string and extract detection data."""
+        import json
+        import re
+        
+        try:
+            # First try direct JSON parsing
+            if json_str.strip().startswith('{'):
+                result = json.loads(json_str)
+                return self._validate_detection_structure(result)
+                
+            # Try to extract JSON from markdown code blocks
+            code_block_pattern = r'```json\s*(.*?)\s*```'
+            code_block_match = re.search(code_block_pattern, json_str, re.DOTALL)
+            
+            if code_block_match:
+                json_content = code_block_match.group(1).strip()
+                result = json.loads(json_content)
+                return self._validate_detection_structure(result)
+            
+            # Try to find JSON within the string
+            json_start = json_str.find('{')
+            json_end = json_str.rfind('}')
+            
+            if json_start != -1 and json_end != -1 and json_end > json_start:
+                json_content = json_str[json_start:json_end+1]
+                result = json.loads(json_content)
+                return self._validate_detection_structure(result)
+                
+            logger.warning("Could not find valid JSON in response")
+            return self._default_detection_result()
+            
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON decode error: {str(e)}")
+            return self._default_detection_result()
+    
+    def _validate_detection_structure(self, result: Dict[str, Any]) -> Dict[str, Any]:
+        """Validate and normalize detection result structure."""
+        normalized = {
+            "misunderstandings": result.get("misunderstandings", []),
+            "first_agent_questions": result.get("first_agent_questions", []),
+            "second_agent_questions": result.get("second_agent_questions", [])
+        }
+        
+        # Ensure questions are in the correct format
+        if normalized["first_agent_questions"] and isinstance(normalized["first_agent_questions"][0], dict):
+            normalized["first_agent_questions"] = [
+                q.get("question", str(q)) for q in normalized["first_agent_questions"]
+            ]
+            
+        if normalized["second_agent_questions"] and isinstance(normalized["second_agent_questions"][0], dict):
+            normalized["second_agent_questions"] = [
+                q.get("question", str(q)) for q in normalized["second_agent_questions"]
+            ]
+        
+        return normalized
+    
+    def _default_detection_result(self) -> Dict[str, Any]:
+        """Return default empty detection result."""
+        return {
+            "misunderstandings": [],
+            "first_agent_questions": [],
+            "second_agent_questions": []
+        }

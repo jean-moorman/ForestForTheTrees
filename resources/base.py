@@ -553,51 +553,8 @@ class BaseManager(ABC):
             logger.error(f"Failed to import CircuitBreakerRegistry, using fallback initialization")
             self._circuit_registry = None
         
-        # Initialize and register circuit breaker
-        try:
-            # Import utility function to ensure event loop
-            from resources.events.utils import ensure_event_loop
-            
-            # Get or create event loop
-            loop = ensure_event_loop()
-            
-            # Get component type for configuration selection
-            component_type = self.__class__.__name__.lower()
-            
-            # Create registration task
-            if self._circuit_registry:
-                register_task = loop.create_task(
-                    self._get_or_create_circuit_breaker(
-                        component_type, 
-                        circuit_breaker_config
-                    )
-                )
-                self._add_task(register_task)
-            else:
-                # Fallback to direct creation if registry not available
-                self._circuit_breaker = CircuitBreaker(
-                    name=self.resource_id,
-                    event_queue=event_queue,
-                    config=circuit_breaker_config
-                )
-                # Register with system monitor
-                register_task = loop.create_task(
-                    self._system_monitor.register_circuit_breaker(
-                        self.resource_id,
-                        self._circuit_breaker
-                    )
-                )
-                self._add_task(register_task)
-                
-        except RuntimeError:
-            # Handle case when no event loop is available
-            logger.warning(f"No event loop available during {self.__class__.__name__} initialization")
-            # Create fallback circuit breaker for operations to work
-            self._circuit_breaker = CircuitBreaker(
-                name=self.resource_id,
-                event_queue=event_queue,
-                config=circuit_breaker_config
-            )
+        # Circuit breaker removed - resource management operations are internal,
+        # not external dependencies that need protection
         
         # Register this manager with memory monitor
         self._memory_monitor.register_component(
@@ -885,23 +842,7 @@ class BaseManager(ABC):
         # Reverse for cleanup order (dependents first)
         return order
         
-    async def _get_or_create_circuit_breaker(self, component_type, config=None):
-        """Get or create circuit breaker using the registry"""
-        if not self._circuit_registry:
-            # Fallback to direct creation if registry not available
-            self._circuit_breaker = CircuitBreaker(
-                name=self.resource_id,
-                event_queue=self.event_bus,
-                config=config
-            )
-            return
-            
-        # Get or create circuit breaker using registry
-        self._circuit_breaker = await self._circuit_registry.get_or_create_circuit_breaker(
-            name=self.resource_id,
-            component=component_type,
-            config=config
-        )
+    # Circuit breaker methods removed - not needed for internal operations
     
     async def start(self) -> None:
         """Start all monitoring systems"""
@@ -939,47 +880,13 @@ class BaseManager(ABC):
                                 operation: str,
                                 func: Callable[[], Awaitable[Any]],
                                 timeout: Optional[float] = None) -> Any:
-        """Execute operation with circuit breaker and error handling with timeout"""
+        """Execute operation with error handling and timeout - circuit breaker removed"""
         try:
-            # Get component type for circuit breaker identification
-            component_type = self.__class__.__name__.lower()
-            
-            # Use registry-aware execution if available
-            if hasattr(self, '_circuit_registry') and self._circuit_registry is not None:
-                # Check if circuit breaker is set or needs initialization
-                if not hasattr(self, '_circuit_breaker') or self._circuit_breaker is None:
-                    # Initialize the circuit breaker if not done yet
-                    await self._get_or_create_circuit_breaker(component_type)
-                    
-                # Create operation key for more granular circuit breaking
-                operation_circuit_name = f"{self.resource_id}_{operation}"
-                
-                # Execute through registry with fallback to local circuit breaker
-                try:
-                    return await self._circuit_registry.circuit_execute(
-                        circuit_name=operation_circuit_name,
-                        operation=lambda: self._ensure_thread_safety(
-                            operation, 
-                            lambda: self._execute_protected(operation, func, timeout)
-                        ),
-                        component=component_type
-                    )
-                except AttributeError:
-                    # Fallback to local circuit breaker if circuit_execute not available
-                    return await self._circuit_breaker.execute(
-                        lambda: self._ensure_thread_safety(
-                            operation, 
-                            lambda: self._execute_protected(operation, func, timeout)
-                        )
-                    )
-            else:
-                # Fallback to direct execution with local circuit breaker
-                return await self._circuit_breaker.execute(
-                    lambda: self._ensure_thread_safety(
-                        operation, 
-                        lambda: self._execute_protected(operation, func, timeout)
-                    )
-                )
+            # Direct execution with thread safety and timeout protection
+            return await self._ensure_thread_safety(
+                operation, 
+                lambda: self._execute_protected(operation, func, timeout)
+            )
         except Exception as e:
             await self.handle_operation_error(e, operation)
             raise
@@ -1176,29 +1083,7 @@ class BaseManager(ABC):
                         except (asyncio.CancelledError, asyncio.TimeoutError):
                             pass
                             
-            # Reset circuit breaker if severe cleanup is requested
-            if force and hasattr(self, '_circuit_breaker') and self._circuit_breaker:
-                try:
-                    await self._circuit_breaker.reset()
-                    logger.info(f"Reset circuit breaker for {component_id}")
-                except Exception as e:
-                    logger.error(f"Error resetting circuit breaker: {e}")
-                    
-            # Also reset operation-specific circuit breakers if using registry
-            if force and hasattr(self, '_circuit_registry') and self._circuit_registry:
-                try:
-                    # Get all circuit breakers for this manager
-                    circuit_pattern = f"{self._id}_"
-                    for name in self._circuit_registry.circuit_names:
-                        if name.startswith(circuit_pattern):
-                            try:
-                                # Reset each operation-specific circuit breaker
-                                await self._circuit_registry.reset_circuit(name)
-                                logger.info(f"Reset operation circuit breaker: {name}")
-                            except Exception as e:
-                                logger.error(f"Error resetting operation circuit breaker {name}: {e}")
-                except Exception as e:
-                    logger.error(f"Error accessing circuit registry during cleanup: {e}")
+            # Circuit breaker cleanup removed - no longer using circuit breakers for internal operations
             
             # Call specific cleanup implementation
             await self._cleanup_resources(force)
@@ -1208,7 +1093,7 @@ class BaseManager(ABC):
                 await self.event_bus.emit(
                     ResourceEventTypes.RESOURCE_CLEANUP.value,
                     {
-                        "resource_id": getattr(self, '_id', component_id),
+                        "resource_id": getattr(self, 'resource_id', component_id),
                         "component": component_id,
                         "timestamp": datetime.now().isoformat(),
                         "force": force

@@ -6,10 +6,14 @@ and Earth Agent, managing the feedback loop for refinement.
 """
 import logging
 import asyncio
-from typing import Dict, Any, Optional, Tuple, List
+from typing import Dict, Any, Optional, Tuple, List, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from phase_one.validation.coordination import SequentialAgentCoordinator
 from datetime import datetime
 
 from resources import EventQueue, StateManager
+from resources.common import ResourceType
 from interfaces.agent.interface import AgentInterface
 from phase_one.models.enums import DevelopmentState
 from phase_one.models.refinement import RefinementContext
@@ -38,6 +42,7 @@ class GardenPlannerValidator:
         earth_agent: AgentInterface,
         event_queue: EventQueue,
         state_manager: StateManager,
+        sequential_coordinator: Optional['SequentialAgentCoordinator'] = None,
         max_refinement_cycles: int = 3,
         validation_timeout: float = 60.0
     ):
@@ -49,6 +54,7 @@ class GardenPlannerValidator:
             earth_agent: The Earth Agent for validation
             event_queue: Event queue for publishing/subscribing to events
             state_manager: State manager for persistent state
+            sequential_coordinator: Optional coordinator for water agent coordination
             max_refinement_cycles: Maximum number of refinement cycles
             validation_timeout: Timeout for validation process in seconds
         """
@@ -56,6 +62,7 @@ class GardenPlannerValidator:
         self.earth_agent = earth_agent
         self.event_queue = event_queue
         self.state_manager = state_manager
+        self.sequential_coordinator = sequential_coordinator
         self.max_refinement_cycles = max_refinement_cycles
         self.validation_timeout = validation_timeout
         
@@ -122,13 +129,15 @@ class GardenPlannerValidator:
             # Reset Earth Agent validation cycle counter
             await self.earth_agent.reset_validation_cycle_counter()
             
-            # Process validation with timeout
-            async with asyncio.timeout(self.validation_timeout):
-                return await self._process_validation_cycles(
+            # Process validation with timeout (compatible with Python 3.10)
+            return await asyncio.wait_for(
+                self._process_validation_cycles(
                     user_request,
                     current_analysis,
                     operation_id
-                )
+                ),
+                timeout=self.validation_timeout
+            )
                 
         except asyncio.TimeoutError:
             logger.error(f"Validation timeout exceeded for operation {operation_id}")
@@ -142,7 +151,7 @@ class GardenPlannerValidator:
                     "end_time": datetime.now().isoformat(),
                     "error": "Validation timeout exceeded"
                 },
-                ResourceType="STATE"
+                resource_type=ResourceType.STATE
             )
             
             # Emit validation timeout event
@@ -170,7 +179,7 @@ class GardenPlannerValidator:
                     "end_time": datetime.now().isoformat(),
                     "error": str(e)
                 },
-                ResourceType="STATE"
+                resource_type=ResourceType.STATE
             )
             
             # Emit validation error event
@@ -209,6 +218,44 @@ class GardenPlannerValidator:
         """
         current_analysis = initial_analysis
         
+        # Step 1: Water Agent Coordination (Garden Planner → Earth Agent)
+        if self.sequential_coordinator:
+            logger.info(f"Coordinating handoff from Garden Planner to Earth Agent for operation {operation_id}")
+            
+            coordination_id = f"{operation_id}_garden_to_earth_coordination"
+            try:
+                coordinated_analysis, coordination_metadata = await self.sequential_coordinator.coordinate_agent_handoff(
+                    self.garden_planner_agent,
+                    current_analysis,
+                    self.earth_agent,
+                    coordination_id
+                )
+                
+                # Store coordination result
+                await self.state_manager.set_state(
+                    f"garden_planner_validation:{operation_id}:coordination",
+                    {
+                        "coordination_id": coordination_id,
+                        "metadata": coordination_metadata,
+                        "timestamp": datetime.now().isoformat()
+                    },
+                    resource_type=ResourceType.STATE
+                )
+                
+                # If coordination updated the analysis, use the updated version
+                if coordination_metadata.get("result") == "coordination_applied":
+                    logger.info(f"Using water-coordinated analysis for Earth Agent validation")
+                    current_analysis = coordinated_analysis
+                else:
+                    logger.info(f"No coordination changes applied, using original analysis")
+                    
+            except Exception as e:
+                logger.warning(f"Water agent coordination failed for {coordination_id}: {str(e)}")
+                logger.info(f"Proceeding with original analysis for Earth Agent validation")
+                # Continue with original analysis if coordination fails
+        else:
+            logger.info(f"No sequential coordinator provided, skipping water agent coordination")
+        
         # Process validation cycles
         while self.current_cycle < self.max_refinement_cycles:
             # Increment cycle counter
@@ -225,7 +272,7 @@ class GardenPlannerValidator:
                     "current_cycle": self.current_cycle,
                     "cycle_start_time": datetime.now().isoformat()
                 },
-                ResourceType="STATE"
+                resource_type=ResourceType.STATE
             )
             
             # Validate current analysis with Earth Agent
@@ -252,7 +299,7 @@ class GardenPlannerValidator:
                     "validation_result": validation_result,
                     "timestamp": datetime.now().isoformat()
                 },
-                ResourceType="STATE"
+                resource_type=ResourceType.STATE
             )
             
             # Check validation category
@@ -262,19 +309,14 @@ class GardenPlannerValidator:
             if validation_category == "APPROVED" or self.current_cycle >= self.max_refinement_cycles:
                 is_valid = validation_category == "APPROVED"
                 
-                # For CORRECTED category, use the corrected output
-                if validation_category == "CORRECTED" and "corrected_update" in validation_result:
-                    current_analysis = validation_result["corrected_update"]
-                    is_valid = True
-                
                 # Finalize validation
                 await self._finalize_validation(operation_id, is_valid, validation_category)
                 
                 # Return final status and analysis
                 return is_valid, current_analysis, self.validation_history
             
-            # For REJECTED, refine with Garden Planner
-            if validation_category == "REJECTED":
+            # For CORRECTED or REJECTED, refine with Garden Planner
+            if validation_category in ["CORRECTED", "REJECTED"]:
                 # Prepare refinement guidance
                 refinement_guidance = self._create_refinement_guidance(validation_result)
                 
@@ -321,17 +363,19 @@ class GardenPlannerValidator:
         try:
             # Create refinement context for Garden Planner
             refinement_context = RefinementContext(
-                original_output=current_analysis,
-                refinement_guidance=refinement_guidance,
                 iteration=self.current_cycle,
-                timestamp=datetime.now().isoformat()
+                agent_id="garden_planner",
+                original_output=current_analysis,
+                refined_output={},  # Will be populated after refinement
+                refinement_guidance=refinement_guidance,
+                timestamp=datetime.now()
             )
             
             # Add refinement context to validation state
             await self.state_manager.set_state(
                 f"garden_planner_validation:{operation_id}:refinement:{self.current_cycle}",
                 refinement_context.to_dict(),
-                ResourceType="STATE"
+                resource_type=ResourceType.STATE
             )
             
             # Reset Garden Planner state to start fresh
@@ -350,7 +394,7 @@ class GardenPlannerValidator:
                     "refined_output": refined_output,
                     "timestamp": datetime.now().isoformat()
                 },
-                ResourceType="STATE"
+                resource_type=ResourceType.STATE
             )
             
             return refined_output
@@ -424,9 +468,10 @@ class GardenPlannerValidator:
         # Prioritize CRITICAL and HIGH issues for focus areas
         for severity in ["CRITICAL", "HIGH"]:
             for issue in issues_by_severity[severity]:
-                # Add affected areas to focus areas
-                affected_areas = issue.get("affected_areas", [])
-                focus_areas.update(affected_areas)
+                # Add affected area to focus areas (now a single string)
+                affected_area = issue.get("affected_area", "")
+                if affected_area:
+                    focus_areas.add(affected_area)
                 
                 # Add issue type to focus areas
                 issue_type = issue.get("issue_type", "")
@@ -436,8 +481,9 @@ class GardenPlannerValidator:
         # If no CRITICAL or HIGH issues, check MEDIUM issues
         if not focus_areas and issues_by_severity["MEDIUM"]:
             for issue in issues_by_severity["MEDIUM"]:
-                affected_areas = issue.get("affected_areas", [])
-                focus_areas.update(affected_areas)
+                affected_area = issue.get("affected_area", "")
+                if affected_area:
+                    focus_areas.add(affected_area)
         
         return list(focus_areas)
     
@@ -460,7 +506,7 @@ class GardenPlannerValidator:
                 "cycles_completed": self.current_cycle,
                 "end_time": datetime.now().isoformat()
             },
-            ResourceType="STATE"
+            resource_type=ResourceType.STATE
         )
         
         # Emit validation completed event
@@ -491,7 +537,7 @@ class GardenPlannerValidator:
         # Get validation state
         validation_state = await self.state_manager.get_state(
             f"garden_planner_validation:{operation_id}",
-            ResourceType="STATE"
+            resource_type=ResourceType.STATE
         )
         
         # If no state found, return unknown status
@@ -507,7 +553,7 @@ class GardenPlannerValidator:
         for cycle in range(1, validation_state.get("cycles_completed", 0) + 1):
             cycle_state = await self.state_manager.get_state(
                 f"garden_planner_validation:{operation_id}:cycle:{cycle}",
-                ResourceType="STATE"
+                resource_type=ResourceType.STATE
             )
             
             if cycle_state:

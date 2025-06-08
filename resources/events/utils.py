@@ -250,28 +250,13 @@ class RateLimiter:
 
 def ensure_event_loop() -> asyncio.AbstractEventLoop:
     """
-    Ensure there's a running event loop or create one.
-    
-    This function is for backward compatibility only. New code should use
-    explicitly created event loops per thread with clear ownership boundaries.
+    Simplified event loop creation using new two-loop architecture.
     
     Returns:
-        The current event loop
+        The appropriate event loop for current thread
     """
-    try:
-        # Try to get the event loop from the current thread
-        from resources.events.loop_management import EventLoopManager
-        return EventLoopManager.ensure_event_loop()
-    except ImportError:
-        # Fall back to basic asyncio methods
-        try:
-            # Try to get the running loop
-            return asyncio.get_running_loop()
-        except RuntimeError:
-            # No running loop, create a new one
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            return loop
+    from resources.events.loop_management import EventLoopManager
+    return EventLoopManager.ensure_event_loop()
 
 class ThreadPoolExecutorManager:
     """

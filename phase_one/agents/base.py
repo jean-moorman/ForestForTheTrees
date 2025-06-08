@@ -12,14 +12,14 @@ from resources import (
     AgentContextManager, CacheManager, MetricsManager, ErrorHandler
 )
 from resources.monitoring import (
-    CircuitBreaker, CircuitState, CircuitOpenError, CircuitBreakerConfig, 
     MemoryThresholds, MemoryMonitor, HealthStatus, HealthTracker
 )
-from interface import AgentInterface, AgentState
+from interfaces import AgentInterface, AgentState
 
 from phase_one.models.enums import DevelopmentState
 from phase_one.models.refinement import RefinementContext, AgentPromptConfig
-from phase_one.monitoring.circuit_breakers import CircuitBreakerDefinition
+# Circuit breaker definitions no longer needed - protection at API level
+from phase_one.coordination import get_agent_coordinator, AgentPriority
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -38,7 +38,6 @@ class ReflectiveAgent(AgentInterface):
         error_handler: ErrorHandler,
         memory_monitor: MemoryMonitor,
         prompt_config: AgentPromptConfig,
-        circuit_breakers: List[CircuitBreakerDefinition] = None,
         health_tracker: HealthTracker = None
     ):
         super().__init__(agent_id, event_queue, state_manager, context_manager, cache_manager, metrics_manager, error_handler, memory_monitor)
@@ -49,21 +48,13 @@ class ReflectiveAgent(AgentInterface):
         self._health_tracker = health_tracker
         self._memory_monitor = memory_monitor
         
-        # Circuit breaker registry
-        self._circuit_breakers = {}
+        # Agent coordination
+        self._agent_coordinator = get_agent_coordinator()
+        self._priority_level = self._calculate_priority_level()
         
-        # Always create a processing circuit breaker
-        self._create_circuit_breaker("processing")
-        
-        # Create additional circuit breakers if provided
-        if circuit_breakers:
-            for cb_def in circuit_breakers:
-                self._create_circuit_breaker(
-                    cb_def.name, 
-                    failure_threshold=cb_def.failure_threshold,
-                    recovery_timeout=cb_def.recovery_timeout,
-                    failure_window=cb_def.failure_window
-                )
+        # Circuit breakers removed - LLM protection now handled at API level
+        # Individual agents don't need their own circuit breakers since they just do internal processing
+        # The actual LLM calls are protected by the centralized circuit breaker in AnthropicAPI
         
         # Mapping between development states and agent states
         self._state_mapping = {
@@ -76,42 +67,145 @@ class ReflectiveAgent(AgentInterface):
             DevelopmentState.COMPLETE: AgentState.COMPLETE
         }
 
+        # Track background tasks for proper cleanup
+        self._background_tasks = set()
+        
         # Initial health report (deferred to async initialization)
-        asyncio.create_task(self._ensure_initialized_and_report_health())
+        task = asyncio.create_task(self._ensure_initialized_and_report_health())
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
     
     async def _ensure_initialized_and_report_health(self):
         """Ensure initialization and report health"""
         await self.ensure_initialized()
         await self._report_agent_health()
-
-    def _create_circuit_breaker(
-        self, 
-        name: str, 
-        failure_threshold: int = 3,
-        recovery_timeout: int = 30,
-        failure_window: int = 120
-    ) -> CircuitBreaker:
-        """Create and register a circuit breaker."""
-        circuit_id = f"{self.interface_id}_{name}"
-        
-        self._circuit_breakers[name] = CircuitBreaker(
-            circuit_id,
-            self._event_queue,
-            config=CircuitBreakerConfig(
-                failure_threshold=failure_threshold,
-                recovery_timeout=recovery_timeout,
-                failure_window=failure_window
-            )
-        )
-        
-        return self._circuit_breakers[name]
     
-    def get_circuit_breaker(self, name: str) -> CircuitBreaker:
-        """Get a circuit breaker by name."""
-        if name not in self._circuit_breakers:
-            # Create default if doesn't exist
-            return self._create_circuit_breaker(name)
-        return self._circuit_breakers[name]
+    def _calculate_priority_level(self) -> AgentPriority:
+        """Calculate the priority level for this agent based on its type and role."""
+        agent_type = self.__class__.__name__.lower()
+        
+        # Earth Agent and Garden Planner get high priority due to their coordination complexity
+        if 'earth' in agent_type or 'garden' in agent_type:
+            return AgentPriority.HIGH
+        # Validation agents get normal priority
+        elif 'validation' in agent_type or 'validator' in agent_type:
+            return AgentPriority.NORMAL
+        # Other agents get low priority
+        else:
+            return AgentPriority.LOW
+    
+    def _estimate_update_duration(self, new_state: AgentState) -> float:
+        """Estimate how long a state update will take based on the state type."""
+        # LLM-intensive operations take longer
+        llm_states = {AgentState.PROCESSING, AgentState.VALIDATING}
+        
+        if new_state in llm_states:
+            return 45.0  # 45 seconds for LLM operations
+        elif new_state == AgentState.COORDINATING:
+            return 30.0  # 30 seconds for coordination
+        else:
+            return 10.0  # 10 seconds for simple state changes
+    
+    async def set_agent_state(self, new_state: AgentState, metadata: Optional[Dict[str, Any]] = None) -> None:
+        """
+        Coordinated agent state update to prevent resource contention.
+        
+        Args:
+            new_state: New state to set
+            metadata: Additional metadata
+        """
+        # Skip coordination if we're already in the target state
+        if hasattr(self, 'agent_state') and self.agent_state == new_state:
+            logger.debug(f"Agent {self.agent_id} already in state {new_state.name}, skipping update")
+            return
+            
+        # Use coordination for state updates to prevent contention
+        estimated_duration = self._estimate_update_duration(new_state)
+        operation_type = f"state_update_{new_state.name}"
+        
+        try:
+            async with self._agent_coordinator.request_update_slot(
+                self.agent_id,
+                self._priority_level,
+                estimated_duration,
+                operation_type
+            ):
+                # Call the parent implementation within the coordination context
+                await super().set_agent_state(new_state, metadata)
+        except Exception as e:
+            logger.error(f"Coordination failed for agent {self.agent_id} state transition to {new_state.name}: {str(e)}")
+            # Fall back to direct state update if coordination fails
+            try:
+                await super().set_agent_state(new_state, metadata)
+                logger.info(f"Fallback state update successful for agent {self.agent_id} to {new_state.name}")
+            except Exception as fallback_error:
+                logger.error(f"Both coordinated and fallback state updates failed for agent {self.agent_id}: {str(fallback_error)}")
+                # Still update the internal state to prevent getting stuck
+                if hasattr(self, 'agent_state'):
+                    self.agent_state = new_state
+                raise
+
+    # Circuit breaker methods removed - protection now at API level
+    
+    # Compatibility method for step-by-step interface
+    
+    async def process(self, input_data: Any) -> Dict[str, Any]:
+        """
+        Compatibility method for step-by-step interface.
+        
+        This method provides a simplified interface that wraps the more complex
+        process_with_validation method with sensible defaults.
+        
+        Args:
+            input_data: Input data for processing (string or dict)
+            
+        Returns:
+            Processing result dictionary
+        """
+        await self.ensure_initialized()
+        
+        # Convert input to conversation string
+        if isinstance(input_data, str):
+            conversation = input_data
+        elif isinstance(input_data, dict):
+            conversation = json.dumps(input_data, indent=2)
+        else:
+            conversation = str(input_data)
+        
+        # Use the configured prompt paths
+        prompt_path = self._prompt_config.system_prompt_base_path
+        prompt_name = self._prompt_config.initial_prompt_name
+        
+        # Set processing state
+        self.development_state = DevelopmentState.ANALYZING
+        
+        try:
+            # Direct processing - circuit breaker protection now at API level
+            result = await self.process_with_validation(
+                conversation=conversation,
+                system_prompt_info=(prompt_path, prompt_name),
+                timeout=180  # 3 minute timeout for LLM calls
+            )
+            
+            # Mark as complete if successful
+            if result.get("status") == "success":
+                self.development_state = DevelopmentState.COMPLETE
+            else:
+                self.development_state = DevelopmentState.ERROR
+            
+            return result
+            
+        except Exception as e:
+            self.development_state = DevelopmentState.ERROR
+            error_msg = f"Processing failed for agent {self.interface_id}: {str(e)}"
+            logger.error(error_msg, exc_info=True)
+            
+            return {
+                "status": "error", 
+                "error": error_msg,
+                "agent_id": self.interface_id,
+                "timestamp": datetime.now().isoformat()
+            }
     
     # Health reporting methods
     
@@ -172,7 +266,7 @@ class ReflectiveAgent(AgentInterface):
     async def standard_reflect(
         self, 
         output: Dict[str, Any],
-        circuit_name: str = "processing",
+        circuit_name: str = None,  # Ignored - kept for compatibility
         prompt_path: str = None,
         prompt_name: str = None
     ) -> Dict[str, Any]:
@@ -191,37 +285,11 @@ class ReflectiveAgent(AgentInterface):
         _prompt_name = prompt_name or self._prompt_config.reflection_prompt_name
         
         try:
-            # Use circuit breaker for reflection
-            return await self.get_circuit_breaker(circuit_name).execute(
-                lambda: self.process_with_validation(
-                    conversation=f"Reflect on output with a critical eye for fundamental errors and / or faulty assumptions: {output}",
-                    system_prompt_info=(_prompt_path, _prompt_name)
-                )
+            # Direct reflection - circuit breaker protection now at API level
+            return await self.process_with_validation(
+                conversation=f"Reflect on output with a critical eye for fundamental errors and / or faulty assumptions: {output}",
+                system_prompt_info=(_prompt_path, _prompt_name)
             )
-        except CircuitOpenError:
-            logger.warning(f"Reflection circuit open for agent {self.interface_id}, reflection rejected")
-            
-            # Report critical health status
-            await self._report_agent_health(
-                custom_status="CRITICAL",
-                description=f"Reflection rejected due to circuit breaker open",
-                metadata={
-                    "state": "VALIDATING",
-                    "circuit": "open"
-                }
-            )
-            
-            return {
-                "error": "Reflection rejected due to circuit breaker open",
-                "status": "failure",
-                "agent_id": self.interface_id,
-                "timestamp": datetime.now().isoformat(),
-                "reflection_results": {
-                    "validation_status": {
-                        "passed": False
-                    }
-                }
-            }
         except Exception as e:
             logger.error(f"Reflection failed for {self.interface_id}: {str(e)}")
             
@@ -256,7 +324,7 @@ class ReflectiveAgent(AgentInterface):
         self, 
         output: Dict[str, Any], 
         refinement_guidance: Dict[str, Any],
-        circuit_name: str = "processing",
+        circuit_name: str = None,  # Ignored - kept for compatibility
         prompt_path: str = None,
         prompt_name: str = None
     ) -> Dict[str, Any]:
@@ -276,14 +344,12 @@ class ReflectiveAgent(AgentInterface):
         _prompt_name = prompt_name or self._prompt_config.refinement_prompt_name
         
         try:
-            # Use circuit breaker for refinement
-            refinement_result = await self.get_circuit_breaker(circuit_name).execute(
-                lambda: self.process_with_validation(
-                    conversation=f"""Refine output based on:
-                    Original output: {output}
-                    Refinement guidance: {refinement_guidance}""",
-                    system_prompt_info=(_prompt_path, _prompt_name)
-                )
+            # Direct refinement - circuit breaker protection now at API level
+            refinement_result = await self.process_with_validation(
+                conversation=f"""Refine output based on:
+                Original output: {output}
+                Refinement guidance: {refinement_guidance}""",
+                system_prompt_info=(_prompt_path, _prompt_name)
             )
             
             # Update health status based on refinement result
@@ -300,21 +366,21 @@ class ReflectiveAgent(AgentInterface):
             
             return refinement_result
             
-        except CircuitOpenError:
-            logger.warning(f"Refinement circuit open for agent {self.interface_id}, refinement rejected")
+        except Exception as e:
+            logger.error(f"Refinement failed for {self.interface_id}: {str(e)}")
             
             # Report critical health status
             await self._report_agent_health(
-                custom_status="CRITICAL",
-                description=f"Refinement rejected due to circuit breaker open",
+                custom_status="CRITICAL", 
+                description=f"Refinement failed: {str(e)}",
                 metadata={
                     "state": "REFINING",
-                    "circuit": "open"
+                    "error": str(e)
                 }
             )
             
             return {
-                "error": "Refinement rejected due to circuit breaker open",
+                "error": f"Refinement failed: {str(e)}",
                 "status": "failure",
                 "agent_id": self.interface_id,
                 "timestamp": datetime.now().isoformat()
@@ -373,3 +439,19 @@ class ReflectiveAgent(AgentInterface):
         self._development_state = state
         # Update the agent state based on the development state
         self.agent_state = self._state_mapping.get(state, AgentState.READY)
+    
+    async def cleanup(self) -> None:
+        """Clean up background tasks and resources."""
+        # Cancel any remaining background tasks
+        for task in self._background_tasks:
+            if not task.done():
+                task.cancel()
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
+        self._background_tasks.clear()
+        
+        # Call parent cleanup if available
+        if hasattr(super(), 'cleanup'):
+            await super().cleanup()

@@ -896,7 +896,9 @@ def create_feature_from_definition(feature_def: Dict[str, Any]) -> Feature:
 
 def register_feature_metrics(feature: Feature) -> None:
     """Register monitoring metrics for feature."""
-    resource_manager = StateManager()
+    from resources.events import EventQueue
+    event_queue = EventQueue()
+    resource_manager = StateManager(event_queue)
     
     # Register functionality metrics
     resource_manager.record_metric(
@@ -957,7 +959,9 @@ def monitor_feature_changes(feature: Feature) -> None:
             logger.info(f"Feature change event: {data}")
             register_feature_metrics(feature)
     
-    resource_manager = StateManager()
+    from resources.events import EventQueue
+    event_queue = EventQueue()
+    resource_manager = StateManager(event_queue)
     resource_manager.subscribe_to_events("feature_functionality_added", 
                                        feature_change_callback)
     resource_manager.subscribe_to_events("feature_dependency_added", 
@@ -975,7 +979,9 @@ def monitor_feature_changes(feature: Feature) -> None:
 
 def register_functionality_metrics(functionality: Functionality) -> None:
     """Register monitoring metrics for functionality."""
-    resource_manager = StateManager()
+    from resources.events import EventQueue
+    event_queue = EventQueue()
+    resource_manager = StateManager(event_queue)
     
     # Register dependency metrics
     resource_manager.record_metric(
@@ -1020,7 +1026,9 @@ def monitor_functionality_changes(functionality: Functionality) -> None:
             logger.info(f"Functionality change event: {data}")
             register_functionality_metrics(functionality)
     
-    resource_manager = StateManager()
+    from resources.events import EventQueue
+    event_queue = EventQueue()
+    resource_manager = StateManager(event_queue)
     resource_manager.subscribe_to_events("functionality_implemented", 
                                        functionality_change_callback)
     resource_manager.subscribe_to_events("functionality_dependency_added", 

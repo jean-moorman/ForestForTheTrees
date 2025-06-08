@@ -19,6 +19,8 @@ You are the Tree Placement Planner Agent, responsible for analyzing the outputs 
 
 ## Output Format
 
+**CRITICAL: You must return ONLY valid JSON. Do not include any explanatory text, markdown code blocks, or additional commentary outside the JSON structure. Your entire response must be parseable as JSON.**
+
 Provide your analysis in the following JSON format:
 
 ```json
@@ -228,6 +230,9 @@ You are the Reflection Agent for the Tree Placement Planner, validating componen
 5. Verify requirement coverage
 
 ## Output Format
+
+**CRITICAL: You must return ONLY valid JSON. Do not include any explanatory text, markdown code blocks, or additional commentary outside the JSON structure. Your entire response must be parseable as JSON.**
+
 ```json
 {"reflection_results": {"component_structure": {"completeness": [{"severity": "high|medium|low","affected_component": "string","issue": "string","recommendation": "string"}],"interface_definition": [{"severity": "high|medium|low","affected_component": "string","issue": "string","recommendation": "string"}]},"dependency_analysis": {"circular_dependencies": [{"severity": "high|medium|low","affected_components": ["strings"],"issue": "string","recommendation": "string"}],"missing_dependencies": [{"severity": "high|medium|low","affected_component": "string","issue": "string","recommendation": "string"}]},"sequence_validation": {"ordering_issues": [{"severity": "high|medium|low","affected_components": ["strings"],"issue": "string","recommendation": "string"}],"parallelization_concerns": [{"severity": "high|medium|low","phase": "string","issue": "string","recommendation": "string"}]},"coverage_analysis": {"requirement_gaps": [{"severity": "high|medium|low","requirement": "string","issue": "string","recommendation": "string"}],"completion_criteria": [{"severity": "high|medium|low","affected_component": "string","issue": "string","recommendation": "string"}]}}}
 ```
@@ -309,7 +314,7 @@ structural_component_reflection_schema = {
                     "type": "string"
                   }
                 },
-                "required": ["severity", "component", "issue", "recommendation"]
+                "required": ["severity", "affected_component", "issue", "recommendation"]
               }
             },
             "interface_definition": {
@@ -331,7 +336,7 @@ structural_component_reflection_schema = {
                     "type": "string"
                   }
                 },
-                "required": ["severity", "component", "issue", "recommendation"]
+                "required": ["severity", "affected_component", "issue", "recommendation"]
               }
             }
           },
@@ -363,7 +368,7 @@ structural_component_reflection_schema = {
                     "type": "string"
                   }
                 },
-                "required": ["severity", "components", "issue", "recommendation"]
+                "required": ["severity", "affected_components", "issue", "recommendation"]
               }
             },
             "missing_dependencies": {
@@ -385,7 +390,7 @@ structural_component_reflection_schema = {
                     "type": "string"
                   }
                 },
-                "required": ["severity", "component", "issue", "recommendation"]
+                "required": ["severity", "affected_component", "issue", "recommendation"]
               }
             }
           },
@@ -417,7 +422,7 @@ structural_component_reflection_schema = {
                     "type": "string"
                   }
                 },
-                "required": ["severity", "components", "issue", "recommendation"]
+                "required": ["severity", "affected_components", "issue", "recommendation"]
               }
             },
             "parallelization_concerns": {
@@ -489,7 +494,7 @@ structural_component_reflection_schema = {
                     "type": "string"
                   }
                 },
-                "required": ["severity", "component", "issue", "recommendation"]
+                "required": ["severity", "affected_component", "issue", "recommendation"]
               }
             }
           },
@@ -544,6 +549,8 @@ You are the Tree Placement Planner Agent processing reflection feedback to revis
 - Optimization suggestions
 
 ## Output Format
+
+**CRITICAL: You must return ONLY valid JSON. Do not include any explanatory text, markdown code blocks, or additional commentary outside the JSON structure. Your entire response must be parseable as JSON.**
 
 Provide your revised architecture using standard component architecture format with additional revision documentation:
 
@@ -873,6 +880,8 @@ You are the Tree Placement Planner Agent receiving refinement guidance after a c
 - Verify phase organization
 
 ## Output Format
+
+**CRITICAL: You must return ONLY valid JSON. Do not include any explanatory text, markdown code blocks, or additional commentary outside the JSON structure. Your entire response must be parseable as JSON.**
 
 Provide your revised analysis using your standard output format with additional refinement metadata:
 

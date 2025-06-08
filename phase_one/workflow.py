@@ -69,22 +69,23 @@ class PhaseOneWorkflow:
         self.event_queue = event_queue
         self.state_manager = state_manager
         
-        # Create Garden Planner validator
-        self.garden_planner_validator = GardenPlannerValidator(
-            garden_planner_agent,
-            earth_agent,
-            event_queue,
-            state_manager,
-            max_earth_validation_cycles,
-            validation_timeout
-        )
-        
         # Create Sequential Agent Coordinator for Water Agent coordination
         self.sequential_coordinator = SequentialAgentCoordinator(
             event_queue,
             state_manager,
             max_coordination_attempts=2,
             coordination_timeout=validation_timeout
+        )
+        
+        # Create Garden Planner validator with sequential coordinator
+        self.garden_planner_validator = GardenPlannerValidator(
+            garden_planner_agent,
+            earth_agent,
+            event_queue,
+            state_manager,
+            sequential_coordinator=self.sequential_coordinator,
+            max_refinement_cycles=max_earth_validation_cycles,
+            validation_timeout=validation_timeout
         )
         
         # Initialize workflow state
@@ -325,6 +326,7 @@ class PhaseOneWorkflow:
             )
             
             root_system_result = await self._execute_root_system_architect(
+                task_analysis,
                 environmental_analysis,
                 operation_id
             )
@@ -666,9 +668,7 @@ class PhaseOneWorkflow:
             self.environmental_analysis_agent.development_state = DevelopmentState.ANALYZING
             
             # Process task analysis with Environmental Analysis agent
-            # Convert task_analysis to string for processing
-            env_analysis_input = f"Task Analysis: {task_analysis}"
-            env_analysis_result = await self.environmental_analysis_agent._process(env_analysis_input)
+            env_analysis_result = await self.environmental_analysis_agent._process(task_analysis)
             
             # Store Environmental Analysis result in state
             await self.state_manager.set_state(
@@ -696,6 +696,7 @@ class PhaseOneWorkflow:
     
     async def _execute_root_system_architect(
         self,
+        garden_planner_output: Dict[str, Any],
         environmental_analysis: Dict[str, Any],
         operation_id: str
     ) -> Dict[str, Any]:
@@ -703,6 +704,7 @@ class PhaseOneWorkflow:
         Execute Root System Architect agent.
         
         Args:
+            garden_planner_output: Garden Planner task analysis result
             environmental_analysis: Environmental Analysis result
             operation_id: Identifier for this workflow execution
             
@@ -716,10 +718,11 @@ class PhaseOneWorkflow:
             # Set Root System Architect agent to analyzing state
             self.root_system_architect_agent.development_state = DevelopmentState.ANALYZING
             
-            # Process environmental analysis with Root System Architect agent
-            # Convert environmental_analysis to string for processing
-            root_system_input = f"Environmental Analysis: {environmental_analysis}"
-            root_system_result = await self.root_system_architect_agent._process(root_system_input)
+            # Process both garden planner and environmental analysis with Root System Architect agent
+            root_system_result = await self.root_system_architect_agent._process(
+                garden_planner_output,
+                environmental_analysis
+            )
             
             # Store Root System Architect result in state
             await self.state_manager.set_state(
@@ -780,7 +783,9 @@ class PhaseOneWorkflow:
             
             # Process combined input with Tree Placement Planner agent
             tree_placement_result = await self.tree_placement_planner_agent._process(
-                f"Consolidated input for component architecture: {tree_placement_input}"
+                task_analysis,
+                environmental_analysis,
+                data_architecture
             )
             
             # Fire Agent complexity check and potential decomposition

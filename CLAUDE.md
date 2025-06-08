@@ -23,21 +23,18 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Build/Lint/Test Commands
 
 ### Centralized Test Suite (Recommended)
-- Run all tests: `python tests_new/runners/run_all_tests.py`
-- Run unit tests: `python tests_new/runners/run_unit_tests.py`
-- Run integration tests: `python tests_new/runners/run_integration_tests.py`
-- Run performance tests: `python tests_new/runners/run_performance_tests.py`
-- Run with coverage: `python tests_new/runners/run_all_tests.py --coverage`
-- Run specific category: `python tests_new/runners/run_all_tests.py --unit`
+- Run all tests: `python tests/runners/run_all_tests.py`
+- Run unit tests: `python tests/runners/run_unit_tests.py`
+- Run integration tests: `python tests/runners/run_integration_tests.py`
+- Run performance tests: `python tests/runners/run_performance_tests.py`
+- Run with coverage: `python tests/runners/run_all_tests.py --coverage`
+- Run specific category: `python tests/runners/run_all_tests.py --unit`
 
 ### Direct PyTest Commands
-- Run all tests: `python -m pytest tests_new/ -xvs --log-cli-level=INFO --log-file=test.log --color=yes --asyncio-mode=auto`
-- Run single test file: `python -m pytest -xvs tests_new/unit/core/agents/test_agent.py`
-- Run specific test: `python -m pytest -xvs tests_new/unit/core/agents/test_agent.py::test_agent_initialization`
-- Run tests with async support: `python -m pytest -xvs --asyncio-mode=auto tests_new/unit/events/test_event_core.py`
-
-### Legacy Test Commands (Deprecated)
-- Old test structure: `python -m pytest -xvs tests/` (use tests_new/ instead)
+- Run all tests: `python -m pytest tests/ -xvs --log-cli-level=INFO --log-file=test.log --color=yes --asyncio-mode=auto`
+- Run single test file: `python -m pytest -xvs tests/unit/core/agents/test_agent.py`
+- Run specific test: `python -m pytest -xvs tests/unit/core/agents/test_agent.py::test_agent_initialization`
+- Run tests with async support: `python -m pytest -xvs --asyncio-mode=auto tests/unit/events/test_event_core.py`
 
 ## Code Style Guidelines
 

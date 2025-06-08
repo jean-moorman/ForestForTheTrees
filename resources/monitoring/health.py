@@ -5,6 +5,7 @@ This module provides functionality for tracking and reporting health status
 across system components, with support for subscribing to health updates.
 """
 
+import asyncio
 import logging
 import threading
 from typing import Dict, Any, Optional, Set, Callable, Awaitable
@@ -26,7 +27,6 @@ class HealthTracker:
         self._creation_thread_id = threading.get_ident()
         
         # Store the event loop for this component
-        import asyncio
         from resources.events.loop_management import ThreadLocalEventLoopStorage
         try:
             loop = asyncio.get_event_loop()
@@ -90,6 +90,7 @@ class HealthTracker:
                 logger.error(f"Error in health status callback: {e}")
                 
         # Emit health change event with thread information for debugging
+        # Use lower priority for frequent health updates to reduce event spam
         await self._event_queue.emit(
             ResourceEventTypes.SYSTEM_HEALTH_CHANGED.value,
             {
@@ -99,8 +100,83 @@ class HealthTracker:
                 "metadata": status_copy.metadata,
                 "timestamp": status_copy.timestamp.isoformat(),
                 "thread_id": current_thread_id
+            },
+            priority="low"  # Reduce priority to prevent overwhelming the system
+        )
+    
+    async def batch_update_health(self, updates: Dict[str, HealthStatus]) -> None:
+        """Batch update multiple component health statuses with single event emission"""
+        if not updates:
+            return
+            
+        # Verify thread affinity
+        current_thread_id = threading.get_ident()
+        if hasattr(self, '_creation_thread_id') and current_thread_id != self._creation_thread_id:
+            # If called from wrong thread, delegate to correct thread
+            from resources.events.loop_management import EventLoopManager
+            try:
+                loop = EventLoopManager.get_loop_for_thread(self._creation_thread_id)
+                if loop:
+                    logger.debug(f"Delegating batch health update for {len(updates)} components to tracker thread {self._creation_thread_id}")
+                    future = EventLoopManager.run_coroutine_threadsafe(
+                        self._batch_update_health_in_correct_thread(updates),
+                        target_loop=loop
+                    )
+                    return await asyncio.wrap_future(future)
+            except Exception as e:
+                logger.warning(f"Failed to delegate batch health update to correct thread: {e}")
+                # Continue with current thread as fallback
+        
+        # Process all updates with thread safety
+        updated_components = {}
+        with self._lock:
+            # Create thread-safe copies and store all updates
+            for component, status in updates.items():
+                status_copy = HealthStatus(
+                    status=status.status,
+                    source=status.source,
+                    description=status.description,
+                    timestamp=status.timestamp,
+                    metadata=dict(status.metadata) if status.metadata else None
+                )
+                self._component_health[component] = status_copy
+                updated_components[component] = status_copy
+            
+            # Create a copy of subscribers to avoid modifying during iteration
+            subscribers = set(self._subscribers)
+        
+        # Notify subscribers for each component (outside the lock to prevent deadlocks)
+        for component, status_copy in updated_components.items():
+            for callback in subscribers:
+                try:
+                    await callback(component, status_copy)
+                except Exception as e:
+                    logger.error(f"Error in health status callback for {component}: {e}")
+        
+        # Emit single batch health change event
+        await self._event_queue.emit(
+            ResourceEventTypes.SYSTEM_HEALTH_CHANGED.value,
+            {
+                "component": "batch_update",
+                "status": "BATCH_HEALTH_UPDATE",
+                "description": f"Batch health update for {len(updated_components)} components",
+                "components": {
+                    component: {
+                        "status": status.status,
+                        "description": status.description,
+                        "timestamp": status.timestamp.isoformat()
+                    }
+                    for component, status in updated_components.items()
+                },
+                "component_count": len(updated_components),
+                "thread_id": current_thread_id
             }
         )
+        logger.debug(f"Batch health update completed for {len(updated_components)} components")
+    
+    async def _batch_update_health_in_correct_thread(self, updates: Dict[str, HealthStatus]) -> None:
+        """Helper method for thread-safe batch health updates"""
+        await self.batch_update_health(updates)
         
     def get_component_health(self, component: str) -> Optional[HealthStatus]:
         """Get health status for specific component"""

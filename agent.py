@@ -133,13 +133,22 @@ class Agent:
                 raise ValueError("conversation parameter cannot be empty")
             if schema is None: #setting default schema
                 self.logger.info("Schema parameter is none, setting default schema")
+                self.logger.info(f"system_prompt_info: {system_prompt_info}")
                 prompt_name = system_prompt_info[1]
+                self.logger.info(f"prompt_name: {prompt_name}")
                 schema_name = prompt_name[:-6] + "schema"
+                self.logger.info(f"schema_name: {schema_name}")
                 schema_dir = system_prompt_info[0]
-                schema_path = Path(schema_dir).with_suffix(".py")
-                self.logger.debug(f"Schema path: {schema_path}")
+                # Check if the schema_dir is a file path without extension
+                if not schema_dir.endswith('.py'):
+                    schema_path = schema_dir + ".py"
+                else:
+                    schema_path = schema_dir
+                self.logger.info(f"Schema path: {schema_path}")
+                self.logger.info(f"Schema dir: {schema_dir}")
+                self.logger.info(f"Working directory: {os.getcwd()}")
                 if not os.path.exists(schema_path):
-                    self.logger.debug(f"Schema file not found: {schema_path}")
+                    self.logger.error(f"Schema file not found: {schema_path}")
                     raise FileNotFoundError(f"Schema file not found: {schema_path}")
                 
                 # Load the schema module dynamically
@@ -151,21 +160,18 @@ class Agent:
                 schema_module = importlib.util.module_from_spec(spec)
                 spec.loader.exec_module(schema_module)
                 
-                self.logger.debug(f"Schema name: {schema_name}")
                 # Get the schema from the module
                 self.schema = getattr(schema_module, schema_name, None)
-                self.logger.info(f"Default Schema loaded: {self.schema is not None}")
                 if self.schema is None:
                     raise AttributeError(f"No schema found in {schema_path}")
-            
-            self.logger.info("=== SCHEMA LOADING COMPLETE, getting validation state entry ===")
+                
+                self.logger.debug(f"Schema loaded successfully: {schema_name}")
             # Get validation state entry
             state_entry = await self._state_manager.get_state(validation_key)
             
             if not state_entry:
-                logging.info("no validation entry, initializing validation state")
                 # Initialize validation state
-                state_entry = await self._state_manager.set_state(
+                await self._state_manager.set_state(
                     resource_id=validation_key,
                     state={
                         "attempts": 0,
@@ -173,12 +179,13 @@ class Agent:
                     },
                     resource_type=ResourceType.AGENT
                 )
-                logging.info("validation state initialized")
+                # Get the newly created state entry
+                state_entry = await self._state_manager.get_state(validation_key)
             
             # Access state data properly through the StateEntry object
             validation_data = state_entry.state
             if validation_data["attempts"] >= self.max_validation_attempts:
-                logging.info("maximum validation attempts exceeded")
+                self.logger.warning("Maximum validation attempts exceeded")
                 error_details = {
                     "type": "validation_exceeded", 
                     "message": "Maximum validation attempts exceeded",
@@ -188,21 +195,19 @@ class Agent:
                 await self._handle_error(error_details, operation_id, current_phase)
                 return {"error": error_details}
             
-            logging.info("getting agent context")
+            self.logger.debug(f"Getting agent context for operation {operation_id}")
             # Get agent context
             context = await self._context_manager.get_context(f"agent_context:{operation_id}")
             if not context:
-                logging.info("no agent context, initializing agent context")
+                self.logger.debug("No agent context found, creating new context")
                 context = await self._context_manager.create_context(
                     agent_id=f"agent_context:{operation_id}",
                     operation_id=operation_id,
                     schema=self.schema,
                     context_type=AgentContextType.PERSISTENT,
                 )
-                logging.info("agent context initialized")
+                self.logger.debug("Agent context created successfully")
 
-            self.logger.debug("calling API")
-            logging.info("getting agent response")
             # Get raw response
             content = await self.api.call(
                 conversation=conversation,
@@ -211,16 +216,13 @@ class Agent:
                 current_phase=current_phase,
                 max_tokens=max_tokens or self.max_tokens
             )
-            logging.info("agent response received")
             if content is None:
                 raise ValueError("API call returned None response")
-            self.logger.debug(f"API response received: \n{content}\n")
-            # self.logger.debug(f"API response received: {content[:200]}...")  # Log first 200 chars
             
             try:
-                logging.info("starting agent validation")
-                logging.info(f"Content: {content}")
-                logging.info(f"Schema: {self.schema}")
+                # Log content only in debug mode to avoid massive output
+                self.logger.debug(f"API response length: {len(content)} characters")
+                self.logger.debug(f"Schema validation using: {type(self.schema)}")
                 
                 # Pass content directly to validator - it will handle string extraction or object validation
                 try:
@@ -254,13 +256,13 @@ class Agent:
                 )
                 
                 if success:
-                    logging.info("agent validation succeeded")
+                    self.logger.debug(f"Validation succeeded after {validation_data['attempts']} attempts")
                     return result
                 
                 #Handle multiple validation attempts
-                logging.info(f"Starting validation loop - attempts: {validation_data['attempts']}, max: {self.max_validation_attempts}")
+                self.logger.debug(f"Starting validation loop - attempts: {validation_data['attempts']}, max: {self.max_validation_attempts}")
                 while not success and validation_data["attempts"] < self.max_validation_attempts - 1:
-                    logging.info(f"Validation attempt {validation_data['attempts'] + 1} - validation failed, retrying...")
+                    self.logger.debug(f"Validation attempt {validation_data['attempts'] + 1} - validation failed, retrying...")
                     val_errors = f"Validation failed with errors: {analysis}"
                     
                     # Get new content with validation feedback
@@ -276,11 +278,11 @@ class Agent:
                     success, result, analysis = await self.validator.validate_output(new_content, self.schema)
 
                     validation_data["attempts"] += 1
-                    logging.info(f"Validation attempt {validation_data['attempts']} completed. Success: {success}")
+                    self.logger.debug(f"Validation attempt {validation_data['attempts']} completed. Success: {success}")
                     
                     # Safety check to prevent infinite loops
                     if validation_data["attempts"] >= self.max_validation_attempts:
-                        logging.warning(f"Maximum validation attempts ({self.max_validation_attempts}) reached, breaking loop")
+                        self.logger.warning(f"Maximum validation attempts ({self.max_validation_attempts}) reached, breaking loop")
                         break
                     validation_data["history"].append({
                         "timestamp": datetime.now().isoformat(),
@@ -305,7 +307,7 @@ class Agent:
                     )
 
                     if success:
-                        logging.info("agent validation succeeded")
+                        self.logger.debug(f"Validation succeeded on retry attempt {validation_data['attempts']}")
                         return result
     
                          
@@ -395,7 +397,7 @@ class Agent:
             # Get corrected response using API
             corrected_content = await self.api.call(
                 conversation=correction_prompt,
-                system_prompt_info=("FFTT_system_prompts/validation/semantic_correction", "semantic_correction_prompt"),
+                system_prompt_info=("FFTT_system_prompts/validation/semantic_correction_agent", "semantic_correction_prompt"),
                 schema=request.schema,
                 current_phase="semantic_correction",
                 max_tokens=self.max_tokens

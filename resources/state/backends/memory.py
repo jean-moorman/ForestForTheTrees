@@ -60,3 +60,25 @@ class MemoryStateBackend(StateStorageBackend):
         """Clean up old entries, returns count of removed items"""
         # Memory backend doesn't need special cleanup
         return 0
+        
+    async def delete_state(self, resource_id: str) -> bool:
+        """Delete a state entry from memory with thread safety"""
+        with self._lock:
+            if resource_id in self._states:
+                del self._states[resource_id]
+                # Also clear history and snapshots for this resource
+                if resource_id in self._history:
+                    del self._history[resource_id]
+                if resource_id in self._snapshots:
+                    del self._snapshots[resource_id]
+                return True
+            return False
+            
+    async def clear_all_states(self) -> int:
+        """Clear all states from memory with thread safety"""
+        with self._lock:
+            count = len(self._states)
+            self._states.clear()
+            self._history.clear()
+            self._snapshots.clear()
+            return count

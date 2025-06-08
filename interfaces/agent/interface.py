@@ -31,7 +31,8 @@ from .metrics import InterfaceMetrics
 from .guideline import GuidelineManager
 from .coordination import CoordinationInterface
 
-# Import AgentState from __init__ without creating a circular import
+# Import AgentState from __init__ to avoid duplication
+# Note: We can't import from __init__ due to circular import, but the enum is defined there
 from enum import Enum, auto
 class AgentState(Enum):
     READY = auto()
@@ -98,6 +99,19 @@ class AgentInterface(BaseInterface):
         self.agent_state = AgentState.READY
         self.model = model
         
+        # Track last logged state to avoid duplicate logging
+        self._last_logged_state = None
+        
+        # Hierarchical state locks for reduced contention
+        self._state_locks = {}  # Will be initialized in ensure_initialized
+        self._lock_timeout_config = {
+            'processing': 60.0,     # Increased for LLM operations
+            'validating': 60.0,     # Increased for validation
+            'coordinating': 45.0,   # Medium timeout for coordination
+            'clarifying': 30.0,     # Medium timeout for clarification
+            'default': 15.0         # Reduced for simple transitions
+        }
+        
         # Create the agent
         self.agent = Agent(
             event_queue=event_queue,
@@ -128,6 +142,24 @@ class AgentInterface(BaseInterface):
         # Configure validation settings
         self._max_validation_attempts = 3
     
+    async def ensure_initialized(self) -> None:
+        """
+        Ensure the interface is properly initialized with hierarchical state locks.
+        """
+        # Initialize base interface first
+        await super().ensure_initialized()
+        
+        # Initialize hierarchical state locks if not already done
+        if not self._state_locks:
+            self._state_locks = {
+                'agent_state': asyncio.Lock(),
+                'resource_state': asyncio.Lock(),
+                'validation_state': asyncio.Lock(),
+                'coordination_state': asyncio.Lock(),
+                'clarification_state': asyncio.Lock()
+            }
+            logger.debug(f"Initialized hierarchical state locks for agent {self.agent_id}")
+    
     async def set_agent_state(self, new_state: AgentState, metadata: Optional[Dict[str, Any]] = None) -> None:
         """
         Update agent state and synchronize with resource state with initialization safeguard and timeout protection.
@@ -143,12 +175,48 @@ class AgentInterface(BaseInterface):
             AgentState.ERROR: ResourceState.TERMINATED,
             AgentState.COMPLETE: ResourceState.ACTIVE
         }
-        logger.info(f"Setting agent state to {new_state}")
+        
+        # Only log state transitions, not confirmations of same state
+        if self._last_logged_state != new_state:
+            if self._last_logged_state is not None:
+                logger.info(f"Agent {self.agent_id}: {self._last_logged_state.name} → {new_state.name}")
+            else:
+                logger.info(f"Agent {self.agent_id}: Initial state → {new_state.name}")
+            self._last_logged_state = new_state
+        else:
+            logger.debug(f"Agent {self.agent_id}: Confirming state {new_state.name}")
         
         try:
+            # Ensure we have a running event loop before attempting state operations
+            try:
+                asyncio.get_running_loop()
+            except RuntimeError:
+                # No running event loop - use EventLoopManager to ensure proper context
+                from resources.events.loop_management import EventLoopManager
+                primary_loop = EventLoopManager.get_primary_loop()
+                if primary_loop and not primary_loop.is_closed():
+                    # Set the primary loop as the current thread's event loop
+                    asyncio.set_event_loop(primary_loop)
+                else:
+                    EventLoopManager.ensure_event_loop()
+            
             # Add timeout wrapper to prevent hanging - using wait_for for Python 3.10 compatibility
             try:
-                await asyncio.wait_for(self._set_agent_state_impl(new_state, resource_states, metadata), timeout=10.0)
+                # Get the current loop to use for wait_for
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    from resources.events.loop_management import EventLoopManager
+                    loop = EventLoopManager.get_primary_loop()
+                    if not loop or loop.is_closed():
+                        loop = EventLoopManager.ensure_event_loop()
+                
+                # Use the loop's wait_for method
+                if hasattr(loop, 'wait_for'):
+                    await loop.wait_for(self._set_agent_state_impl(new_state, resource_states, metadata), timeout=10.0)
+                else:
+                    # Fallback to asyncio.wait_for with the loop context
+                    await asyncio.wait_for(self._set_agent_state_impl(new_state, resource_states, metadata), timeout=10.0)
             except asyncio.TimeoutError:
                 logger.error(f"Overall timeout setting agent state to {new_state}")
                 # Ensure internal state is at least set
@@ -169,44 +237,145 @@ class AgentInterface(BaseInterface):
             resource_states: Mapping of agent states to resource states
             metadata: Additional metadata
         """
-        logger.debug(f"About to ensure initialized for {new_state}")
-        
         # Ensure initialization before using lock
         await self.ensure_initialized()
-        logger.debug(f"Initialization complete for {new_state}")
         
         # Update internal state first (this should never hang)
         self.agent_state = new_state
-        logger.debug(f"Internal agent state updated to {new_state}")
         
         # Only update resource state if needed
         if new_state in resource_states:
-            logger.debug(f"Attempting to set resource state to {resource_states[new_state]}")
-            
-            # Try state lock with shorter timeout
+            # Use adaptive timeout based on operation type
+            timeout = self._get_adaptive_timeout(new_state)
             try:
-                await asyncio.wait_for(self._update_resource_state_with_lock(resource_states[new_state], metadata), timeout=5.0)
-                logger.debug(f"Resource state set successfully")
+                await asyncio.wait_for(self._update_resource_state_with_lock(resource_states[new_state], metadata), timeout=timeout)
             except asyncio.TimeoutError:
-                logger.warning(f"State lock timeout for {new_state}, updating without resource sync")
+                logger.warning(f"State lock timeout for {new_state} after {timeout}s, updating without resource sync")
                 # Agent state is already set, continue without resource state sync
             except Exception as lock_error:
                 logger.warning(f"State lock error for {new_state}: {str(lock_error)}, continuing without sync")
                 # Agent state is already set, continue without resource state sync
         
         logger.info(f"Agent state successfully set to {new_state}")
+    
+    def _get_adaptive_timeout(self, state: AgentState) -> float:
+        """
+        Get adaptive timeout based on the operation type using configuration.
+        
+        Args:
+            state: The agent state being set
+            
+        Returns:
+            Timeout in seconds
+        """
+        state_name = state.name.lower()
+        return self._lock_timeout_config.get(state_name, self._lock_timeout_config['default'])
         
     async def _update_resource_state_with_lock(self, resource_state: 'ResourceState', metadata: Optional[Dict[str, Any]] = None) -> None:
         """
-        Update resource state with lock protection.
+        Update resource state with hierarchical lock protection and fallback mechanism.
         
         Args:
             resource_state: Resource state to set
             metadata: Additional metadata
         """
-        async with self._state_lock:
-            logger.debug(f"Acquired state lock, setting resource state")
+        # Ensure locks are initialized
+        await self.ensure_initialized()
+        
+        # Use specific resource_state lock
+        lock_key = 'resource_state'
+        timeout = 2.0  # Short timeout per attempt
+        max_retries = 3
+        base_delay = 0.1
+        
+        for attempt in range(max_retries):
+            try:
+                await asyncio.wait_for(
+                    self._acquire_lock_and_update(lock_key, resource_state, metadata), 
+                    timeout=timeout
+                )
+                return  # Success
+            except asyncio.TimeoutError:
+                if attempt < max_retries - 1:
+                    delay = base_delay * (2 ** attempt)
+                    logger.debug(f"Lock contention on {lock_key}, retrying in {delay}s (attempt {attempt + 1}/{max_retries})")
+                    await asyncio.sleep(delay)
+                else:
+                    logger.warning(f"Failed to acquire {lock_key} lock after {max_retries} attempts, using fallback")
+                    # Use fallback lockless update
+                    await self._lockfree_state_update(resource_state, metadata)
+                    return
+    
+    async def _acquire_lock_and_update(self, lock_key: str, resource_state: 'ResourceState', metadata: Optional[Dict[str, Any]] = None) -> None:
+        """Helper method to acquire lock and update state."""
+        async with self._state_locks[lock_key]:
+            logger.debug(f"Acquired {lock_key} lock")
             await self.set_state(resource_state, metadata=metadata)
+    
+    async def _perform_clarification(self, question: str) -> str:
+        """Helper method to perform clarification with lock protection."""
+        async with self._state_locks['clarification_state']:
+            logger.debug(f"Acquired clarification_state lock for agent {self.agent_id}")
+            return await self.coordination_interface.clarify(question)
+    
+    async def _perform_coordination(self, next_agent: Any, my_output: str, next_agent_output: str, coordination_params: Optional[Dict[str, Any]] = None) -> Tuple[str, str, Dict[str, Any]]:
+        """Helper method to perform coordination with lock protection."""
+        async with self._state_locks['coordination_state']:
+            logger.debug(f"Acquired coordination_state lock for agent {self.agent_id}")
+            return await self.coordination_interface.coordinate_with_next_agent(
+                next_agent,
+                my_output,
+                next_agent_output,
+                coordination_params
+            )
+    
+    async def _cleanup_operation_context(self, request_id: str) -> None:
+        """Clean up operation-specific context to prevent resource leaks."""
+        try:
+            operation_specific_agent_id = f"agent:{self.interface_id}:{request_id}"
+            context_key = f"agent_context:{request_id}"
+            
+            # Remove operation-specific context
+            if hasattr(self._context_manager, '_agent_contexts'):
+                if operation_specific_agent_id in self._context_manager._agent_contexts:
+                    del self._context_manager._agent_contexts[operation_specific_agent_id]
+                    logger.debug(f"Cleaned up context for {operation_specific_agent_id}")
+                
+                # Also clean up context locks if they exist
+                if hasattr(self._context_manager, '_context_locks'):
+                    if operation_specific_agent_id in self._context_manager._context_locks:
+                        del self._context_manager._context_locks[operation_specific_agent_id]
+                        logger.debug(f"Cleaned up context lock for {operation_specific_agent_id}")
+                
+        except Exception as e:
+            logger.warning(f"Error during context cleanup for {request_id}: {str(e)}")
+            # Don't let cleanup errors affect the main processing flow
+    
+    async def _lockfree_state_update(self, resource_state: 'ResourceState', metadata: Optional[Dict[str, Any]] = None) -> None:
+        """
+        Fallback lockless state update for when lock acquisition fails.
+        
+        Args:
+            resource_state: Resource state to set
+            metadata: Additional metadata
+        """
+        try:
+            logger.info(f"Performing lockless state update to {resource_state}")
+            
+            # Add fallback indicator to metadata
+            fallback_metadata = dict(metadata) if metadata else {}
+            fallback_metadata.update({
+                "fallback_method": "lockless",
+                "timestamp": datetime.now().isoformat(),
+                "reason": "lock_acquisition_timeout"
+            })
+            
+            await self.set_state(resource_state, metadata=fallback_metadata)
+            logger.debug(f"Lockless state update to {resource_state} completed successfully")
+            
+        except Exception as e:
+            logger.error(f"Lockless state update failed: {str(e)}")
+            # Don't re-raise - we've done our best
     
     # Guideline update methods (delegated to guideline manager)
     async def apply_guideline_update(
@@ -314,38 +483,58 @@ class AgentInterface(BaseInterface):
             if not self._initialized:
                 await self.ensure_initialized()
             
-            logger.info(f"Processing request {request_id} - Phase: {current_phase}")
+            logger.info(f"Processing request {request_id}" + (f" - Phase: {current_phase}" if current_phase else ""))
             
             # Set processing state
             try:
                 await self.set_agent_state(AgentState.PROCESSING, metadata=metadata)
-                logger.info("=== AGENT STATE SET TO PROCESSING SUCCESSFULLY ===")
             except Exception as e:
                 logger.error(f"Failed to set agent state to PROCESSING: {str(e)}")
                 # Continue anyway - we'll try to process even if state setting failed
             
-            # Create or get context
-            logger.info(f"=== CREATING CONTEXT for {request_id} ===")
+            # Create or get context with operation-specific agent_id to avoid conflicts
             context_key = f"agent_context:{request_id}"
+            operation_specific_agent_id = f"agent:{self.interface_id}:{request_id}"
             try:
                 context = await self._context_manager.get_context(context_key)
                 if not context:
-                    logger.info(f"Creating new agent context for operation {request_id}")
+                    logger.debug(f"Creating new agent context for operation {request_id}")
                     context = await self._context_manager.create_context(
-                        agent_id=f"agent:{self.interface_id}",
+                        agent_id=operation_specific_agent_id,
                         operation_id=request_id,
                         schema=schema,
-                        context_type=AgentContextType.PERSISTENT,
+                        context_type=AgentContextType.FRESH,  # Use FRESH to avoid conflicts
                     )
-                    logger.info(f"Created new agent context: {context}")
-                logger.info("=== CONTEXT CREATION COMPLETE ===")
+                    logger.debug(f"Created new agent context: {context}")
             except Exception as e:
                 logger.error(f"Error creating/getting context for {request_id}: {str(e)}")
-                # Continue anyway - we'll try to process even without proper context
+                # For recovery, try to use existing context or continue without context
+                try:
+                    # Attempt to get existing context by trying the base agent_id
+                    base_agent_id = f"agent:{self.interface_id}"
+                    if base_agent_id in self._context_manager._agent_contexts:
+                        logger.info(f"Using existing context for agent {base_agent_id}")
+                        context = self._context_manager._agent_contexts[base_agent_id]
+                    else:
+                        logger.warning(f"No context available, proceeding without context for {request_id}")
+                        context = None
+                except Exception as recovery_error:
+                    logger.error(f"Context recovery failed: {str(recovery_error)}")
+                    context = None
             
             # Start processing timer
-            logger.info("=== STARTING PROCESSING TIMER ===")
             try:
+                # Ensure event loop context for metrics recording
+                try:
+                    asyncio.get_running_loop()
+                except RuntimeError:
+                    from resources.events.loop_management import EventLoopManager
+                    primary_loop = EventLoopManager.get_primary_loop()
+                    if primary_loop and not primary_loop.is_closed():
+                        asyncio.set_event_loop(primary_loop)
+                    else:
+                        EventLoopManager.ensure_event_loop()
+                
                 await self._metrics_manager.record_metric(
                     f"agent:{self.interface_id}:processing_start",
                     1.0,
@@ -354,15 +543,45 @@ class AgentInterface(BaseInterface):
             except Exception as e:
                 logger.warning(f"Failed to record start metric: {str(e)}")
             
-            processing_task = asyncio.create_task(
-                self.agent.get_response(
-                    conversation=conversation,
-                    system_prompt_info=system_prompt_info,
-                    schema=schema,
-                    current_phase=current_phase,
-                    operation_id=request_id
+            # Use loop.create_task to be compatible with qasync
+            try:
+                loop = asyncio.get_running_loop()
+                processing_task = loop.create_task(
+                    self.agent.get_response(
+                        conversation=conversation,
+                        system_prompt_info=system_prompt_info,
+                        schema=schema,
+                        current_phase=current_phase,
+                        operation_id=request_id
+                    )
                 )
-            )
+            except RuntimeError:
+                # If no running loop, try to get primary loop and create task directly
+                from resources.events.loop_management import EventLoopManager
+                loop = EventLoopManager.get_primary_loop()
+                if loop and not loop.is_closed():
+                    processing_task = loop.create_task(
+                        self.agent.get_response(
+                            conversation=conversation,
+                            system_prompt_info=system_prompt_info,
+                            schema=schema,
+                            current_phase=current_phase,
+                            operation_id=request_id
+                        )
+                    )
+                else:
+                    # Fall back to ensure_event_loop and create task
+                    EventLoopManager.ensure_event_loop()
+                    loop = asyncio.get_running_loop()
+                    processing_task = loop.create_task(
+                        self.agent.get_response(
+                            conversation=conversation,
+                            system_prompt_info=system_prompt_info,
+                            schema=schema,
+                            current_phase=current_phase,
+                            operation_id=request_id
+                        )
+                    )
             
             # Wait for the response with timeout
             try:
@@ -490,6 +709,17 @@ class AgentInterface(BaseInterface):
                 logger.error(f"Failed to set agent state to ERROR: {str(inner_e)}")
                 
             try:
+                # Ensure event loop context for metrics recording
+                try:
+                    asyncio.get_running_loop()
+                except RuntimeError:
+                    from resources.events.loop_management import EventLoopManager
+                    primary_loop = EventLoopManager.get_primary_loop()
+                    if primary_loop and not primary_loop.is_closed():
+                        asyncio.set_event_loop(primary_loop)
+                    else:
+                        EventLoopManager.ensure_event_loop()
+                
                 await self._metrics_manager.record_metric(
                     f"agent:{self.interface_id}:processing_exception",
                     1.0,
@@ -503,6 +733,9 @@ class AgentInterface(BaseInterface):
                 "request_id": request_id,
                 "status": "error"
             }
+        finally:
+            # Clean up operation-specific context after processing completes
+            await self._cleanup_operation_context(request_id)
             
     async def clarify(self, question: str) -> str:
         """
@@ -529,8 +762,12 @@ class AgentInterface(BaseInterface):
             logger.error(f"Failed to set agent state to CLARIFYING: {str(e)}")
             
         try:
-            # Delegate to the coordination interface
-            response = await self.coordination_interface.clarify(question)
+            # Use clarification-specific lock for the actual clarification work
+            timeout = self._lock_timeout_config.get('clarifying', 30.0)
+            response = await asyncio.wait_for(
+                self._perform_clarification(question),
+                timeout=timeout
+            )
             
             # Restore previous state
             try:
@@ -588,12 +825,11 @@ class AgentInterface(BaseInterface):
             logger.error(f"Failed to set agent state to COORDINATING: {str(e)}")
             
         try:
-            # Delegate to the coordination interface
-            result = await self.coordination_interface.coordinate_with_next_agent(
-                next_agent,
-                my_output,
-                next_agent_output,
-                coordination_params
+            # Use coordination-specific lock for the actual coordination work
+            timeout = self._lock_timeout_config.get('coordinating', 45.0)
+            result = await asyncio.wait_for(
+                self._perform_coordination(next_agent, my_output, next_agent_output, coordination_params),
+                timeout=timeout
             )
             
             # Restore previous state

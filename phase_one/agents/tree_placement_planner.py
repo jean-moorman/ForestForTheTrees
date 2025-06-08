@@ -7,7 +7,7 @@ from typing import Dict, Any, List
 from datetime import datetime
 
 from resources import EventQueue, StateManager, AgentContextManager, CacheManager, MetricsManager, ErrorHandler
-from resources.monitoring import MemoryMonitor, MemoryThresholds, HealthTracker, CircuitOpenError
+from resources.monitoring import MemoryMonitor, MemoryThresholds, HealthTracker
 
 from phase_one.agents.base import ReflectiveAgent
 from phase_one.models.enums import DevelopmentState
@@ -38,15 +38,7 @@ class TreePlacementPlannerAgent(ReflectiveAgent):
             initial_prompt_name="initial_structural_components_prompt"
         )
         
-        # Define circuit breakers
-        circuit_breakers = [
-            CircuitBreakerDefinition(
-                name="component_design",
-                failure_threshold=4,      # More failures allowed for complex component design
-                recovery_timeout=40,
-                failure_window=180
-            )
-        ]
+        # Circuit breaker definitions removed - protection now at API level
         
         # Initialize base class with configuration
         super().__init__(
@@ -54,7 +46,6 @@ class TreePlacementPlannerAgent(ReflectiveAgent):
             event_queue, state_manager, context_manager, cache_manager, metrics_manager, error_handler, 
             memory_monitor,
             prompt_config,
-            circuit_breakers,
             health_tracker
         )
         
@@ -92,6 +83,51 @@ class TreePlacementPlannerAgent(ReflectiveAgent):
         except Exception:
             # Safe fallback
             return 5
+
+    def _extract_validation_status(self, reflection_result: Dict[str, Any]) -> bool:
+        """Extract validation status from reflection result, handling multiple structure formats."""
+        try:
+            # Check if reflection_results exists
+            reflection_results = reflection_result.get("reflection_results", {})
+            if not reflection_results:
+                logger.warning("No reflection_results found in reflection response")
+                return False
+            
+            # Method 1: Standard validation_status structure (from base class fallbacks)
+            validation_status = reflection_results.get("validation_status")
+            if validation_status is not None:
+                return validation_status.get("passed", False)
+            
+            # Method 2: Overall assessment structure (from earth agent and others)
+            overall_assessment = reflection_results.get("overall_assessment", {})
+            if overall_assessment:
+                critical_improvements = overall_assessment.get("critical_improvements", [])
+                if isinstance(critical_improvements, list):
+                    # If there are critical improvements, validation failed
+                    critical_count = sum(1 for item in critical_improvements 
+                                       if isinstance(item, dict) and 
+                                       item.get("importance") == "critical")
+                    return critical_count == 0
+                return True  # No critical improvements means validation passed
+            
+            # Method 3: Direct status check
+            status = reflection_result.get("status")
+            if status:
+                return status == "success"
+            
+            # Method 4: Check for error indicators
+            if reflection_result.get("error"):
+                return False
+            
+            # Default: assume validation passed if no negative indicators
+            logger.info("No clear validation indicators found, defaulting to passed")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error extracting validation status from reflection result: {str(e)}")
+            # Log the structure for debugging
+            logger.debug(f"Reflection result structure: {reflection_result}")
+            return False
 
     async def _process(self, garden_planner_output: Dict[str, Any],
                       environment_analysis_output: Dict[str, Any],
@@ -131,32 +167,30 @@ class TreePlacementPlannerAgent(ReflectiveAgent):
             try:
                 self.development_state = DevelopmentState.DESIGNING
                 
-                initial_design = await self.get_circuit_breaker("component_design").execute(
-                    lambda: self.process_with_validation(
-                        conversation=f"""Design component architecture based on:
-                        Garden planner: {garden_planner_output}
-                        Environment analysis: {environment_analysis_output}
-                        Root system: {root_system_output}""",
-                        system_prompt_info=(self._prompt_config.system_prompt_base_path, 
-                                          self._prompt_config.initial_prompt_name)
-                    )
+                # Direct processing - circuit breaker protection now at API level
+                initial_design = await self.process_with_validation(
+                    conversation=f"""Design component architecture based on:
+                    Garden planner: {garden_planner_output}
+                    Environment analysis: {environment_analysis_output}
+                    Root system: {root_system_output}""",
+                    system_prompt_info=(self._prompt_config.system_prompt_base_path, 
+                                      self._prompt_config.initial_prompt_name)
                 )
-            except CircuitOpenError:
-                logger.warning(f"Component design circuit open for agent {self.interface_id}, processing rejected")
+            except Exception as e:
+                logger.warning(f"Component design processing error for agent {self.interface_id}: {str(e)}")
                 self.development_state = DevelopmentState.ERROR
                 
                 await self._report_agent_health(
                     custom_status="CRITICAL",
-                    description="Component design rejected due to circuit breaker open",
+                    description=f"Component design processing error: {str(e)}",
                     metadata={
                         "state": "ERROR",
-                        "circuit": "component_design_circuit",
-                        "circuit_state": "OPEN"
+                        "error": str(e)
                     }
                 )
                 
                 return {
-                    "error": "Component design rejected due to circuit breaker open",
+                    "error": f"Component design operation failed: {str(e)}",
                     "status": "failure",
                     "agent_id": self.interface_id,
                     "timestamp": datetime.now().isoformat()
@@ -182,8 +216,10 @@ class TreePlacementPlannerAgent(ReflectiveAgent):
                 circuit_name="component_design"
             )
             
-            # Check validation status
-            if not reflection_result["reflection_results"]["validation_status"]["passed"]:
+            # Check validation status - handle multiple reflection result structures
+            validation_passed = self._extract_validation_status(reflection_result)
+            
+            if not validation_passed:
                 self.development_state = DevelopmentState.REFINING
                 
                 await self._report_agent_health(

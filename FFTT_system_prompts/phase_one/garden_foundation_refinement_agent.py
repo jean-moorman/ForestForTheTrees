@@ -114,6 +114,8 @@ Limited to the following specific actions:
 
 ## Output Format
 
+**CRITICAL: You must return ONLY valid JSON. Do not include any explanatory text, markdown code blocks, or additional commentary outside the JSON structure. Your entire response must be parseable as JSON.**
+
 ```json
 {"refinement_analysis": {"critical_failure": {"category": "architectural_impossibility|core_capability_blockers|resource_invalidation|integration_impossibility","description": "string","evidence": [{"source": "string","observation": "string","impact": "string"}],"phase_zero_signals": [{"agent": "string","supporting_evidence": ["strings"]}]},"root_cause": {"responsible_agent": "garden_planner|environmental_analysis|root_system_architect|tree_placement_planner","failure_point": "string","causal_chain": ["strings"],"verification_steps": ["strings"]},"refinement_action": {"action": "reanalyze_task|revise_environment|restructure_data_flow|reorganize_components","justification": "string","specific_guidance": {"current_state": "string","required_state": "string","adaptation_path": ["strings"]}}}}
 ```
@@ -283,6 +285,9 @@ You are the Reflection Agent for the Garden Foundation Refinement process, valid
 5. Validate causal chains
 
 ## Output Format
+
+**CRITICAL: You must return ONLY valid JSON. Do not include any explanatory text, markdown code blocks, or additional commentary outside the JSON structure. Your entire response must be parseable as JSON.**
+
 ```json
 {"reflection_results": {"failure_analysis": {"critical_qualification": [{"severity": "high|medium|low","category": "string","issue": "string","recommendation": "string"}],"evidence_validation": [{"severity": "high|medium|low","evidence_point": "string","issue": "string","recommendation": "string"}]},"causality_validation": {"root_cause_verification": [{"severity": "high|medium|low","assigned_cause": "string","issue": "string","recommendation": "string"}],"causal_chain_integrity": [{"severity": "high|medium|low","chain_component": "string","issue": "string","recommendation": "string"}]},"action_assessment": {"refinement_appropriateness": [{"severity": "high|medium|low","action": "string","issue": "string","recommendation": "string"}],"guidance_specificity": [{"severity": "high|medium|low","guidance_aspect": "string","issue": "string","recommendation": "string"}]}}}
 ```
@@ -531,6 +536,8 @@ For each reflection feedback item:
    - Ensure clear path from current to required state
 
 ## Output Format
+
+**CRITICAL: You must return ONLY valid JSON. Do not include any explanatory text, markdown code blocks, or additional commentary outside the JSON structure. Your entire response must be parseable as JSON.**
 
 ```json
 {"revision_results": {"acceptance_analysis": {"high_severity_issues": {"addressed": [{"reflection_point": "string","correction_applied": "string","impact_on_analysis": "string"}],"unaddressed": [{"reflection_point": "string","reason": "string"}]},"medium_severity_issues": {"addressed": [{"reflection_point": "string","correction_applied": "string","impact_on_analysis": "string"}],"unaddressed": [{"reflection_point": "string","reason": "string"}]},"low_severity_issues": {"addressed": [{"reflection_point": "string","correction_applied": "string","impact_on_analysis": "string"}],"unaddressed": [{"reflection_point": "string","reason": "string"}]}},"revised_refinement": {"critical_failure": {"category": "architectural_impossibility|core_capability_blockers|resource_invalidation|integration_impossibility","description": "string","evidence": [{"source": "string","observation": "string","impact": "string"}],"phase_zero_signals": [{"agent": "string","supporting_evidence": ["strings"]}]},"root_cause": {"responsible_agent": "garden_planner|environmental_analysis|root_system_architect|tree_placement_planner","failure_point": "string","causal_chain": ["strings"],"verification_steps": ["strings"]},"refinement_action": {"action": "reanalyze_task|revise_environment|restructure_data_flow|reorganize_components","justification": "string","specific_guidance": {"current_state": "string","required_state": "string","adaptation_path": ["strings"]}}},"revision_summary": {"confidence_assessment": "high|medium|low","remaining_uncertainties": ["strings"],"key_improvements": ["strings"]}}}

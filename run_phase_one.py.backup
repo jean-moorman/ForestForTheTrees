@@ -1,0 +1,2072 @@
+#!/usr/bin/env python3
+"""
+Run Phase One Standalone Script
+
+This script runs just the Phase One of the FFTT system, similar to main.py but without
+the Phase Two dependencies. It includes the Earth agent for validation and the Water agent
+for coordination between sequential agents.
+
+It provides both a complete GUI using display.py and a command-line interface for testing
+Phase One functionality with interactive debugging capabilities.
+"""
+import argparse
+import asyncio
+import json
+import logging
+import signal
+import sys
+import time
+import threading
+import traceback
+from datetime import datetime
+from typing import Dict, Any, Optional
+
+import qasync
+from PyQt6.QtWidgets import QApplication, QMessageBox
+from PyQt6.QtCore import QTimer
+
+# Import display for GUI
+from display import ForestDisplay
+
+# Import only Phase One components
+from phase_one.orchestrator import PhaseOneOrchestrator
+from phase_one_minimal_phase_zero import MinimalPhaseZeroOrchestrator
+from resources.events import EventQueue
+from resources.state import StateManager
+from resources.managers import AgentContextManager, CacheManager, MetricsManager, ResourceCoordinator, CircuitBreakerRegistry
+from resources.monitoring import SystemMonitor, MemoryMonitor, HealthTracker
+from resources.errors import ErrorHandler
+from system_error_recovery import SystemErrorRecovery
+
+# Import agents directly to customize their initialization
+from phase_one.agents.garden_planner import GardenPlannerAgent
+from phase_one.agents.earth_agent import EarthAgent
+from phase_one.agents.environmental_analysis import EnvironmentalAnalysisAgent
+from phase_one.agents.root_system_architect import RootSystemArchitectAgent
+from phase_one.agents.tree_placement_planner import TreePlacementPlannerAgent
+from phase_one.workflow import PhaseOneWorkflow
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('run_phase_one.log'),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
+
+class PhaseOneDebugger:
+    """
+    Interactive command-line debugger for Phase One workflow.
+    
+    Provides step-by-step execution, agent state inspection, and real-time monitoring
+    of the Phase One workflow for debugging and verification purposes.
+    """
+    
+    def __init__(self, phase_one_orchestrator: 'PhaseOneOrchestrator'):
+        self.phase_one = phase_one_orchestrator
+        self.logger = logging.getLogger(f"{__name__}.debugger")
+        self.current_operation_id = None
+        self.workflow_state = {}
+        self.agent_metrics = {}
+        self.step_mode = False
+        self.break_points = set()
+        
+    async def start_interactive_session(self):
+        """Start an interactive debugging session."""
+        print("🌲 Phase One Interactive Debugger")
+        print("=" * 50)
+        print("Commands:")
+        print("  run <prompt>     - Execute Phase One workflow with prompt")
+        print("  step            - Enable step-by-step execution mode")
+        print("  nostep          - Disable step-by-step execution mode")
+        print("  status          - Show current workflow status")
+        print("  agents          - List all agents and their status")
+        print("  metrics <agent> - Show detailed metrics for an agent")
+        print("  monitor         - Show real-time system monitoring")
+        print("  breakpoint <stage> - Set breakpoint at workflow stage")
+        print("  continue        - Continue execution from breakpoint")
+        print("  history         - Show execution history")
+        print("  trace           - Show detailed execution trace")
+        print("  verbose         - Enable verbose logging (DEBUG level)")
+        print("  quiet           - Enable quiet mode (WARNING level)")
+        print("  normal          - Set normal logging (INFO level)")
+        print("  reset           - Reset debugger state")
+        print("  help            - Show this help message")
+        print("  quit            - Exit debugger")
+        print("=" * 50)
+        
+        while True:
+            try:
+                # Get user input
+                command = input("\n🐛 > ").strip()
+                
+                if not command:
+                    continue
+                    
+                # Parse command
+                parts = command.split(' ', 1)
+                cmd = parts[0].lower()
+                args = parts[1] if len(parts) > 1 else ""
+                
+                # Handle commands
+                if cmd in ('quit', 'exit', 'q'):
+                    print("Exiting debugger...")
+                    break
+                elif cmd == 'help':
+                    await self._cmd_help()
+                elif cmd == 'run':
+                    await self._cmd_run(args)
+                elif cmd == 'step':
+                    await self._cmd_step()
+                elif cmd == 'nostep':
+                    await self._cmd_nostep()
+                elif cmd == 'status':
+                    await self._cmd_status()
+                elif cmd == 'agents':
+                    await self._cmd_agents()
+                elif cmd == 'metrics':
+                    await self._cmd_metrics(args)
+                elif cmd == 'monitor':
+                    await self._cmd_monitor()
+                elif cmd == 'breakpoint':
+                    await self._cmd_breakpoint(args)
+                elif cmd == 'continue':
+                    await self._cmd_continue()
+                elif cmd == 'history':
+                    await self._cmd_history()
+                elif cmd == 'trace':
+                    await self._cmd_trace()
+                elif cmd == 'verbose':
+                    await self._cmd_verbose()
+                elif cmd == 'quiet':
+                    await self._cmd_quiet()
+                elif cmd == 'normal':
+                    await self._cmd_normal()
+                elif cmd == 'reset':
+                    await self._cmd_reset()
+                else:
+                    print(f"Unknown command: {cmd}. Type 'help' for available commands.")
+                    
+            except KeyboardInterrupt:
+                print("\nUse 'quit' to exit.")
+            except Exception as e:
+                self.logger.error(f"Debugger error: {e}", exc_info=True)
+                print(f"Error: {str(e)}")
+    
+    async def _cmd_help(self):
+        """Show help information."""
+        print("\n📖 Phase One Workflow Steps:")
+        print("1. User prompt submission/storage")
+        print("2. Garden Planner agent (strategy → reflection → revision)")
+        print("3. Earth agent validation (recursion with Garden Planner)")
+        print("4. Water agent coordination between sequential agents")
+        print("5. Environmental Analysis agent")
+        print("6. Root System agent")
+        print("7. Tree Placement Planner agent")
+        print("8. Air agent historical summary")
+        print("9. Fire agent complexity decomposition")
+        print("10. Phase Zero parallel analysis")
+        print("11. Phase Zero Evolution agent synthesis")
+        print("12. Phase One refinement operations")
+        
+    async def _cmd_run(self, prompt: str):
+        """Execute Phase One workflow with the given prompt."""
+        if not prompt:
+            print("Error: Please provide a prompt. Usage: run <your prompt here>")
+            return
+            
+        print(f"\n🚀 Starting Phase One execution with prompt: {prompt[:100]}...")
+        self.current_operation_id = f"debug_{datetime.now().isoformat().replace(':', '-')}"
+        
+        try:
+            if self.step_mode:
+                result = await self._execute_with_stepping(prompt)
+            else:
+                result = await self.phase_one.process_task(prompt, self.current_operation_id)
+                
+            self._print_execution_result(result)
+            
+        except Exception as e:
+            self.logger.error(f"Execution error: {e}", exc_info=True)
+            print(f"❌ Execution failed: {str(e)}")
+    
+    async def _execute_with_stepping(self, prompt: str):
+        """Execute workflow with step-by-step debugging."""
+        print("\n🔍 Step-by-step execution mode enabled")
+        print("Press Enter to continue to next step, 'c' to continue without stepping, 'q' to quit")
+        
+        # This would require modifications to the orchestrator to support stepping
+        # For now, we'll simulate stepping by showing progress
+        steps = [
+            "Initializing workflow",
+            "Garden Planner processing",
+            "Earth Agent validation",
+            "Water Agent coordination",
+            "Environmental Analysis",
+            "Root System Architect",
+            "Tree Placement Planner",
+            "Phase Zero analysis",
+            "Refinement processing"
+        ]
+        
+        for i, step in enumerate(steps):
+            print(f"\n📍 Step {i+1}: {step}")
+            
+            if step in self.break_points:
+                print(f"🛑 Breakpoint hit at: {step}")
+                
+            choice = input("Next? (Enter/c/q): ").strip().lower()
+            if choice == 'q':
+                print("Execution aborted.")
+                return {"status": "aborted", "message": "User aborted execution"}
+            elif choice == 'c':
+                self.step_mode = False
+                print("Continuing without stepping...")
+                break
+        
+        # Execute the actual workflow
+        return await self.phase_one.process_task(prompt, self.current_operation_id)
+    
+    async def _cmd_step(self):
+        """Enable step-by-step execution mode."""
+        self.step_mode = True
+        print("✅ Step-by-step execution mode enabled")
+    
+    async def _cmd_nostep(self):
+        """Disable step-by-step execution mode."""
+        self.step_mode = False
+        print("✅ Step-by-step execution mode disabled")
+    
+    async def _cmd_status(self):
+        """Show current workflow status."""
+        if not self.current_operation_id:
+            print("No active operation")
+            return
+            
+        try:
+            status = await self.phase_one.get_workflow_status(self.current_operation_id)
+            print(f"\n📊 Workflow Status (Operation: {self.current_operation_id})")
+            print(f"Status: {status.get('status', 'unknown')}")
+            print(f"Current Agent: {status.get('current_agent', 'none')}")
+            print(f"Start Time: {status.get('start_time', 'unknown')}")
+            if status.get('end_time'):
+                print(f"End Time: {status.get('end_time')}")
+            if status.get('failure_stage'):
+                print(f"❌ Failed at: {status.get('failure_stage')}")
+            if status.get('error'):
+                print(f"Error: {status.get('error')}")
+                
+        except Exception as e:
+            print(f"Error getting status: {str(e)}")
+    
+    async def _cmd_agents(self):
+        """List all agents and their status."""
+        agents = [
+            ("garden_planner", "Garden Planner Agent"),
+            ("earth_agent", "Earth Agent (Validation)"),
+            ("environmental_analysis", "Environmental Analysis Agent"),
+            ("root_system_architect", "Root System Architect Agent"),
+            ("tree_placement_planner", "Tree Placement Planner Agent")
+        ]
+        
+        print("\n🤖 Phase One Agents:")
+        for agent_id, description in agents:
+            try:
+                metrics = await self.phase_one.get_agent_metrics(agent_id)
+                status = "✅ Ready" if metrics.get('status') == 'success' else "❌ Error"
+                print(f"  {agent_id}: {description} - {status}")
+            except Exception as e:
+                print(f"  {agent_id}: {description} - ❓ Unknown ({str(e)})")
+    
+    async def _cmd_metrics(self, agent_id: str):
+        """Show detailed metrics for an agent."""
+        if not agent_id:
+            print("Error: Please specify an agent ID. Usage: metrics <agent_id>")
+            return
+            
+        try:
+            metrics = await self.phase_one.get_agent_metrics(agent_id)
+            print(f"\n📈 Metrics for {agent_id}:")
+            print(json.dumps(metrics, indent=2))
+        except Exception as e:
+            print(f"Error getting metrics for {agent_id}: {str(e)}")
+    
+    async def _cmd_monitor(self):
+        """Show real-time system monitoring."""
+        try:
+            # Get system health information
+            if hasattr(self.phase_one, '_health_tracker') and self.phase_one._health_tracker:
+                print("\n💚 System Health Monitor:")
+                # This would require accessing health tracker data
+                print("Health tracking is active")
+            else:
+                print("❌ Health tracking not available")
+                
+            if hasattr(self.phase_one, '_memory_monitor') and self.phase_one._memory_monitor:
+                print("Memory monitoring is active")
+            else:
+                print("❌ Memory monitoring not available")
+                
+        except Exception as e:
+            print(f"Error accessing monitoring: {str(e)}")
+    
+    async def _cmd_breakpoint(self, stage: str):
+        """Set a breakpoint at a workflow stage."""
+        if not stage:
+            print("Current breakpoints:", list(self.break_points))
+            return
+            
+        valid_stages = {
+            "garden_planner", "earth_validation", "water_coordination",
+            "environmental_analysis", "root_system", "tree_placement",
+            "air_summary", "fire_decomposition", "phase_zero", "refinement"
+        }
+        
+        if stage in valid_stages:
+            self.break_points.add(stage)
+            print(f"✅ Breakpoint set at: {stage}")
+        else:
+            print(f"Invalid stage. Valid stages: {', '.join(valid_stages)}")
+    
+    async def _cmd_continue(self):
+        """Continue execution from breakpoint."""
+        print("Continuing execution...")
+        # This would be used during step-by-step execution
+    
+    async def _cmd_history(self):
+        """Show execution history."""
+        print("\n📚 Execution History:")
+        if self.current_operation_id:
+            print(f"Current operation: {self.current_operation_id}")
+        else:
+            print("No execution history available")
+    
+    async def _cmd_trace(self):
+        """Show detailed execution trace."""
+        if not self.current_operation_id:
+            print("No active operation to trace")
+            return
+            
+        print(f"\n🔍 Execution Trace for {self.current_operation_id}:")
+        # This would require storing and retrieving detailed trace information
+        print("Trace functionality would show detailed step-by-step execution logs")
+    
+    async def _cmd_verbose(self):
+        """Enable verbose logging (DEBUG level)."""
+        logging.getLogger().setLevel(logging.DEBUG)
+        # Also set specific loggers that were optimized
+        logging.getLogger("agent").setLevel(logging.DEBUG)
+        logging.getLogger("resources.monitoring.circuit_breakers").setLevel(logging.DEBUG)
+        logging.getLogger("resources.events.queue").setLevel(logging.DEBUG)
+        logging.getLogger("interfaces.agent.interface").setLevel(logging.DEBUG)
+        print("✅ Verbose logging enabled (DEBUG level)")
+    
+    async def _cmd_quiet(self):
+        """Enable quiet mode (WARNING level)."""
+        logging.getLogger().setLevel(logging.WARNING)
+        # Also set specific loggers that were optimized
+        logging.getLogger("agent").setLevel(logging.WARNING)
+        logging.getLogger("resources.monitoring.circuit_breakers").setLevel(logging.WARNING)
+        logging.getLogger("resources.events.queue").setLevel(logging.WARNING)
+        logging.getLogger("interfaces.agent.interface").setLevel(logging.WARNING)
+        print("✅ Quiet mode enabled (WARNING level)")
+    
+    async def _cmd_normal(self):
+        """Set normal logging (INFO level)."""
+        logging.getLogger().setLevel(logging.INFO)
+        # Also set specific loggers that were optimized
+        logging.getLogger("agent").setLevel(logging.INFO)
+        logging.getLogger("resources.monitoring.circuit_breakers").setLevel(logging.INFO)
+        logging.getLogger("resources.events.queue").setLevel(logging.INFO)
+        logging.getLogger("interfaces.agent.interface").setLevel(logging.INFO)
+        print("✅ Normal logging enabled (INFO level)")
+    
+    async def _cmd_reset(self):
+        """Reset debugger state."""
+        self.current_operation_id = None
+        self.workflow_state = {}
+        self.agent_metrics = {}
+        self.step_mode = False
+        self.break_points.clear()
+        print("✅ Debugger state reset")
+    
+    def _print_execution_result(self, result: Dict[str, Any]):
+        """Print execution result in a readable format."""
+        print("\n" + "="*60)
+        print("🌲 PHASE ONE EXECUTION RESULT")
+        print("="*60)
+        
+        status = result.get('status', 'unknown')
+        status_emoji = "✅" if status == 'success' else "❌" if status == 'error' else "⚠️"
+        print(f"Status: {status_emoji} {status.upper()}")
+        
+        if result.get('execution_time'):
+            print(f"Execution Time: {result['execution_time']:.2f} seconds")
+        
+        if status == 'error':
+            print(f"❌ Error: {result.get('message', 'Unknown error')}")
+            return
+        
+        # Print structural components
+        if 'structural_components' in result:
+            print(f"\n🏗️  Structural Components ({len(result['structural_components'])}):")
+            for i, component in enumerate(result['structural_components'], 1):
+                name = component.get('name', f'Component {i}')
+                desc = component.get('description', 'No description')
+                deps = component.get('dependencies', [])
+                print(f"  {i}. {name}")
+                print(f"     📝 {desc}")
+                if deps:
+                    print(f"     🔗 Dependencies: {', '.join(deps)}")
+        
+        # Print system requirements summary
+        if 'system_requirements' in result:
+            requirements = result['system_requirements']
+            print(f"\n⚙️  System Requirements:")
+            
+            if 'task_analysis' in requirements:
+                task = requirements['task_analysis']
+                goal = task.get('interpreted_goal', 'Unknown goal')
+                print(f"  🎯 Goal: {goal}")
+                
+                if 'technical_requirements' in task:
+                    tech = task['technical_requirements']
+                    languages = tech.get('languages', [])
+                    frameworks = tech.get('frameworks', [])
+                    if languages or frameworks:
+                        tech_stack = ', '.join(languages + frameworks)
+                        print(f"  💻 Tech Stack: {tech_stack}")
+        
+        # Print refinement information if available
+        if 'refinement_analysis' in result:
+            refinement = result['refinement_analysis']
+            print(f"\n🔄 Refinement Analysis:")
+            if refinement.get('status') == 'refinement_executed':
+                print(f"  ✅ Refinement applied to: {refinement.get('target_agent')}")
+                print(f"  🔄 Cycle: {refinement.get('cycle')}")
+            else:
+                print(f"  ℹ️  No refinement required")
+        
+        print("="*60)
+
+class PhaseOneInterface:
+    """Interface for display to interact with Phase One Orchestrator."""
+    
+    def __init__(self, phase_one: PhaseOneOrchestrator):
+        self.phase_one = phase_one
+        self.logger = logging.getLogger(__name__)
+        
+    def process_task(self, prompt: str) -> Dict[str, Any]:
+        """Process task using Phase One orchestrator - synchronous interface for CLI."""
+        self.logger.info(f"Processing task: {prompt}")
+        
+        try:
+            from resources.events.loop_management import EventLoopManager
+            import concurrent.futures
+            
+            # Get the primary event loop (the main qasync loop)
+            primary_loop = EventLoopManager.get_primary_loop()
+            
+            if primary_loop and not primary_loop.is_closed():
+                # Use run_coroutine_threadsafe to execute in the primary loop
+                future = asyncio.run_coroutine_threadsafe(
+                    self.phase_one.process_task(prompt), 
+                    primary_loop
+                )
+                
+                # Wait for the result with timeout
+                try:
+                    result = future.result(timeout=300)  # 5 minute timeout
+                    
+                    return {
+                        "status": result.get("status", "unknown"),
+                        "phase_one_outputs": result,
+                        "message": f"Processed task through Phase One: {result.get('status', 'unknown')}"
+                    }
+                except concurrent.futures.TimeoutError:
+                    self.logger.error("Phase One processing timed out after 5 minutes")
+                    return {
+                        "status": "error",
+                        "message": "Processing timed out after 5 minutes",
+                        "phase_one_outputs": {}
+                    }
+            else:
+                self.logger.error("No primary loop available")
+                return {
+                    "status": "error",
+                    "message": "No event loop available for processing",
+                    "phase_one_outputs": {}
+                }
+                    
+        except Exception as e:
+            self.logger.error(f"Error processing task: {e}", exc_info=True)
+            return {
+                "status": "error",
+                "message": str(e),
+                "phase_one_outputs": {}
+            }
+    
+    async def process_task_async(self, prompt: str) -> Dict[str, Any]:
+        """Process task using Phase One orchestrator - async interface for GUI."""
+        self.logger.info(f"Processing task async: {prompt}")
+        
+        try:
+            # Directly call the async method without circular dependencies
+            result = await self.phase_one.process_task(prompt)
+            
+            return {
+                "status": result.get("status", "unknown"),
+                "phase_one_outputs": result,
+                "message": f"Processed task through Phase One: {result.get('status', 'unknown')}"
+            }
+                    
+        except Exception as e:
+            self.logger.error(f"Error processing task async: {e}", exc_info=True)
+            return {
+                "status": "error",
+                "message": str(e),
+                "phase_one_outputs": {}
+            }
+            
+    async def get_agent_metrics(self, agent_id: str) -> Dict[str, Any]:
+        """Get metrics for a specific agent."""
+        self.logger.info(f"Getting metrics for agent: {agent_id}")
+        
+        # Import our utility function
+        from resources.events.utils import ensure_event_loop, run_async_in_thread
+        
+        try:
+            # Ensure we have an event loop using our utility function
+            ensure_event_loop()
+            
+            try:
+                # Delegate to phase_one for agent metrics directly
+                return await self.phase_one.get_agent_metrics(agent_id)
+            except RuntimeError as e:
+                if "no running event loop" in str(e):
+                    self.logger.warning(f"No running event loop detected for metrics, using ensure_async_execution: {e}")
+                    # Use our special executor for async operations in case of event loop issues
+                    return await run_async_in_thread(self.phase_one.get_agent_metrics(agent_id))
+                else:
+                    # Re-raise other RuntimeErrors
+                    raise
+            except Exception as e:
+                self.logger.error(f"Error getting agent metrics: {e}", exc_info=True)
+                return {"status": "error", "message": str(e), "agent_id": agent_id}
+        except Exception as e:
+            self.logger.error(f"Error in get_agent_metrics: {e}", exc_info=True)
+            return {"status": "error", "message": str(e), "agent_id": agent_id}
+    
+    # ===== STEP-BY-STEP INTERFACE FOR DEBUGGING AND CLARITY =====
+    
+    async def start_phase_one(self, prompt: str) -> str:
+        """
+        Start Phase One workflow and return operation ID for tracking.
+        
+        Args:
+            prompt: User prompt to process
+            
+        Returns:
+            operation_id: Unique identifier for this Phase One execution
+        """
+        import uuid
+        from datetime import datetime
+        
+        # Generate unique operation ID
+        operation_id = f"phase_one_{datetime.now().strftime('%Y%m%d_%H%M%S')}_{str(uuid.uuid4())[:8]}"
+        
+        self.logger.info(f"Starting Phase One workflow with operation_id: {operation_id}")
+        
+        try:
+            # Initialize workflow state
+            initial_state = {
+                "operation_id": operation_id,
+                "prompt": prompt,
+                "status": "initialized",
+                "current_step": "ready",
+                "start_time": datetime.now().isoformat(),
+                "steps_completed": [],
+                "step_results": {}
+            }
+            
+            # Store initial state
+            await self.phase_one._state_manager.set_state(
+                f"stepwise_phase_one:{operation_id}",
+                initial_state,
+                "STATE"
+            )
+            
+            return operation_id
+            
+        except Exception as e:
+            self.logger.error(f"Error starting Phase One: {e}", exc_info=True)
+            raise
+    
+    async def get_step_status(self, operation_id: str) -> Dict[str, Any]:
+        """
+        Get current status of a Phase One workflow execution.
+        
+        Args:
+            operation_id: The operation ID from start_phase_one()
+            
+        Returns:
+            Dictionary with current status, progress, and results
+        """
+        try:
+            # Get current state
+            state_entry = await self.phase_one._state_manager.get_state(
+                f"stepwise_phase_one:{operation_id}",
+                "STATE"
+            )
+            
+            if not state_entry:
+                return {
+                    "status": "not_found",
+                    "message": f"No workflow found with operation_id: {operation_id}"
+                }
+            
+            # Extract state data from IStateEntry object
+            if hasattr(state_entry, 'state'):
+                state = state_entry.state
+            else:
+                # If it's already a dict, use it directly
+                state = state_entry
+            
+            # Calculate progress
+            total_steps = ["garden_planner", "earth_agent_validation", "environmental_analysis", 
+                          "root_system_architect", "tree_placement_planner", "foundation_refinement"]
+            completed_steps = len(state.get("steps_completed", []))
+            progress_percentage = (completed_steps / len(total_steps)) * 100
+            
+            return {
+                "operation_id": operation_id,
+                "status": state.get("status", "unknown"),
+                "current_step": state.get("current_step", "unknown"),
+                "progress_percentage": progress_percentage,
+                "steps_completed": state.get("steps_completed", []),
+                "total_steps": total_steps,
+                "start_time": state.get("start_time"),
+                "last_updated": state.get("last_updated"),
+                "step_results": state.get("step_results", {}),
+                "error": state.get("error")
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Error getting step status: {e}", exc_info=True)
+            return {
+                "status": "error",
+                "message": str(e),
+                "operation_id": operation_id
+            }
+    
+    async def execute_next_step(self, operation_id: str) -> Dict[str, Any]:
+        """
+        Execute the next step in the Phase One workflow.
+        
+        Args:
+            operation_id: The operation ID from start_phase_one()
+            
+        Returns:
+            Result of the executed step
+        """
+        try:
+            # Get current state
+            state_entry = await self.phase_one._state_manager.get_state(
+                f"stepwise_phase_one:{operation_id}",
+                "STATE"
+            )
+            
+            if not state_entry:
+                return {
+                    "status": "error",
+                    "message": f"No workflow found with operation_id: {operation_id}"
+                }
+            
+            # Extract state data from IStateEntry object
+            if hasattr(state_entry, 'state'):
+                state = state_entry.state
+            else:
+                # If it's already a dict, use it directly
+                state = state_entry
+            
+            # Determine next step
+            completed_steps = state.get("steps_completed", [])
+            current_step = state.get("current_step", "ready")
+            
+            # Define step sequence
+            step_sequence = [
+                "garden_planner",
+                "earth_agent_validation", 
+                "environmental_analysis",
+                "root_system_architect",
+                "tree_placement_planner",
+                "foundation_refinement"
+            ]
+            
+            # Find next step
+            if current_step == "ready":
+                next_step = step_sequence[0]
+            elif current_step == "completed":
+                return {
+                    "status": "completed",
+                    "message": "Phase One workflow already completed",
+                    "operation_id": operation_id
+                }
+            else:
+                # Find current step index and get next
+                try:
+                    current_index = step_sequence.index(current_step)
+                    if current_index + 1 >= len(step_sequence):
+                        # Mark as completed
+                        state["status"] = "completed"
+                        state["current_step"] = "completed"
+                        state["last_updated"] = datetime.now().isoformat()
+                        
+                        await self.phase_one._state_manager.set_state(
+                            f"stepwise_phase_one:{operation_id}",
+                            state,
+                            "STATE"
+                        )
+                        
+                        return {
+                            "status": "completed",
+                            "message": "Phase One workflow completed successfully",
+                            "operation_id": operation_id,
+                            "final_results": state.get("step_results", {})
+                        }
+                    
+                    next_step = step_sequence[current_index + 1]
+                except ValueError:
+                    return {
+                        "status": "error", 
+                        "message": f"Unknown current step: {current_step}",
+                        "operation_id": operation_id
+                    }
+            
+            # Execute the next step
+            self.logger.info(f"Executing step '{next_step}' for operation {operation_id}")
+            
+            step_result = await self._execute_single_step(
+                next_step, 
+                state.get("prompt", ""), 
+                state.get("step_results", {}),
+                operation_id
+            )
+            
+            # Update state with step result
+            state["current_step"] = next_step
+            state["last_updated"] = datetime.now().isoformat()
+            state["steps_completed"] = completed_steps + [next_step]
+            state["step_results"][next_step] = step_result
+            
+            if step_result.get("status") == "error":
+                state["status"] = "error"
+                state["error"] = step_result.get("message", "Unknown error")
+            else:
+                # Check if this was the final step
+                current_step_index = step_sequence.index(next_step)
+                if current_step_index + 1 >= len(step_sequence):
+                    # This was the final step - mark as completed
+                    state["status"] = "completed"
+                    state["current_step"] = "completed"
+                else:
+                    state["status"] = "running"
+            
+            # Save updated state
+            await self.phase_one._state_manager.set_state(
+                f"stepwise_phase_one:{operation_id}",
+                state,
+                "STATE"
+            )
+            
+            return {
+                "status": "step_completed",
+                "operation_id": operation_id,
+                "step_executed": next_step,
+                "step_result": step_result,
+                "next_step": step_sequence[step_sequence.index(next_step) + 1] if step_sequence.index(next_step) + 1 < len(step_sequence) else "completed"
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Error executing next step: {e}", exc_info=True)
+            return {
+                "status": "error",
+                "message": str(e),
+                "operation_id": operation_id
+            }
+    
+    async def _execute_single_step(self, step_name: str, prompt: str, previous_results: Dict[str, Any], operation_id: str) -> Dict[str, Any]:
+        """
+        Execute a single Phase One step with timeout and retry logic.
+        
+        Args:
+            step_name: Name of the step to execute
+            prompt: Original user prompt
+            previous_results: Results from previous steps
+            operation_id: Operation identifier
+            
+        Returns:
+            Result of the single step execution
+        """
+        
+        # Configuration for retry logic
+        max_retries = 2
+        base_timeout = 180.0  # 3 minutes base timeout
+        retry_delays = [5.0, 10.0]  # Increasing delays between retries
+        
+        for attempt in range(max_retries + 1):
+            try:
+                step_start_time = datetime.now()
+                attempt_log = f" (attempt {attempt + 1}/{max_retries + 1})" if attempt > 0 else ""
+                
+                # Calculate timeout - increase with retry attempts
+                timeout = base_timeout + (attempt * 60.0)  # Add 1 minute per retry
+                
+                self.logger.info(f"Executing {step_name} for operation {operation_id}{attempt_log} (timeout: {timeout}s)")
+                
+                # Execute the step with timeout
+                try:
+                    if step_name == "garden_planner":
+                        # Execute Garden Planner
+                        result = await asyncio.wait_for(
+                            self.phase_one.garden_planner_agent.process(prompt),
+                            timeout=timeout
+                        )
+                        
+                    elif step_name == "earth_agent_validation":
+                        # Execute Earth Agent validation on Garden Planner output
+                        garden_output = previous_results.get("garden_planner", {})
+                        if not garden_output:
+                            raise ValueError("Garden Planner output required for Earth Agent validation")
+                        
+                        # Use the validation coordinator for Earth Agent validation
+                        validation_input = {
+                            "user_request": prompt,
+                            "garden_planner_output": garden_output,
+                            "operation_id": operation_id
+                        }
+                        result = await asyncio.wait_for(
+                            self.phase_one.earth_agent.process(validation_input),
+                            timeout=timeout
+                        )
+                        
+                    elif step_name == "environmental_analysis":
+                        # Execute Environmental Analysis
+                        validated_output = previous_results.get("earth_agent_validation", {})
+                        if not validated_output:
+                            raise ValueError("Earth Agent validation output required for Environmental Analysis")
+                        
+                        result = await asyncio.wait_for(
+                            self.phase_one.environmental_analysis_agent.process(validated_output),
+                            timeout=timeout
+                        )
+                        
+                    elif step_name == "root_system_architect":
+                        # Execute Root System Architect
+                        env_output = previous_results.get("environmental_analysis", {})
+                        if not env_output:
+                            raise ValueError("Environmental Analysis output required for Root System Architect")
+                        
+                        result = await asyncio.wait_for(
+                            self.phase_one.root_system_architect_agent.process(env_output),
+                            timeout=timeout
+                        )
+                        
+                    elif step_name == "tree_placement_planner":
+                        # Execute Tree Placement Planner
+                        root_output = previous_results.get("root_system_architect", {})
+                        if not root_output:
+                            raise ValueError("Root System Architect output required for Tree Placement Planner")
+                        
+                        result = await asyncio.wait_for(
+                            self.phase_one.tree_placement_planner_agent.process(root_output),
+                            timeout=timeout
+                        )
+                        
+                    elif step_name == "foundation_refinement":
+                        # Execute Foundation Refinement with Phase Zero feedback
+                        tree_output = previous_results.get("tree_placement_planner", {})
+                        if not tree_output:
+                            raise ValueError("Tree Placement Planner output required for Foundation Refinement")
+                        
+                        # Compile all results for refinement analysis
+                        compiled_results = {
+                            "garden_planner": previous_results.get("garden_planner", {}),
+                            "earth_agent_validation": previous_results.get("earth_agent_validation", {}),
+                            "environmental_analysis": previous_results.get("environmental_analysis", {}),
+                            "root_system_architect": previous_results.get("root_system_architect", {}),
+                            "tree_placement_planner": tree_output
+                        }
+                        
+                        result = await asyncio.wait_for(
+                            self.phase_one.foundation_refinement_agent.process(compiled_results),
+                            timeout=timeout
+                        )
+                        
+                    else:
+                        raise ValueError(f"Unknown step: {step_name}")
+                    
+                    # Success - calculate execution time and return
+                    execution_time = (datetime.now() - step_start_time).total_seconds()
+                    
+                    self.logger.info(f"Step {step_name} completed successfully in {execution_time:.2f}s{attempt_log}")
+                    
+                    return {
+                        "status": "success",
+                        "step_name": step_name,
+                        "execution_time_seconds": execution_time,
+                        "result": result,
+                        "timestamp": datetime.now().isoformat(),
+                        "attempt": attempt + 1,
+                        "timeout_used": timeout
+                    }
+                    
+                except asyncio.TimeoutError:
+                    execution_time = (datetime.now() - step_start_time).total_seconds()
+                    error_msg = f"Step {step_name} timed out after {execution_time:.2f}s (limit: {timeout}s){attempt_log}"
+                    self.logger.warning(error_msg)
+                    
+                    # If this was the last attempt, return timeout error
+                    if attempt >= max_retries:
+                        return {
+                            "status": "error",
+                            "step_name": step_name,
+                            "execution_time_seconds": execution_time,
+                            "error": "timeout",
+                            "message": error_msg,
+                            "timestamp": datetime.now().isoformat(),
+                            "attempts": attempt + 1,
+                            "timeout_used": timeout
+                        }
+                    
+                    # Wait before retry
+                    await asyncio.sleep(retry_delays[attempt])
+                    self.logger.info(f"Retrying {step_name} after {retry_delays[attempt]}s delay...")
+                    continue
+                    
+                except Exception as e:
+                    execution_time = (datetime.now() - step_start_time).total_seconds()
+                    error_msg = f"Step {step_name} failed: {str(e)}{attempt_log}"
+                    self.logger.error(error_msg, exc_info=True)
+                    
+                    # For certain errors, don't retry (validation errors, missing data)
+                    non_retryable_errors = ["required", "missing", "not found", "ValueError"]
+                    if any(err in str(e) for err in non_retryable_errors) or attempt >= max_retries:
+                        return {
+                            "status": "error",
+                            "step_name": step_name,
+                            "execution_time_seconds": execution_time,
+                            "error": str(e),
+                            "message": error_msg,
+                            "timestamp": datetime.now().isoformat(),
+                            "attempts": attempt + 1,
+                            "non_retryable": any(err in str(e) for err in non_retryable_errors)
+                        }
+                    
+                    # Wait before retry for retryable errors
+                    await asyncio.sleep(retry_delays[attempt])
+                    self.logger.info(f"Retrying {step_name} after {retry_delays[attempt]}s delay...")
+                    continue
+            
+            except Exception as outer_e:
+                # This catches any unexpected errors in the retry loop itself
+                self.logger.error(f"Unexpected error in retry loop for {step_name}: {outer_e}", exc_info=True)
+                return {
+                    "status": "error",
+                    "step_name": step_name,
+                    "error": str(outer_e),
+                    "message": f"Unexpected error in retry loop: {str(outer_e)}",
+                    "timestamp": datetime.now().isoformat()
+                }
+        
+        # This should never be reached due to the continue/return logic above
+        return {
+            "status": "error",
+            "step_name": step_name,
+            "error": "max_retries_exceeded",
+            "message": f"Step {step_name} failed after {max_retries + 1} attempts",
+            "timestamp": datetime.now().isoformat()
+        }
+
+class PhaseOneApp:
+    """Application for running Phase One functionality."""
+    
+    def __init__(self):
+        # Get existing QApplication or create one
+        self.app = QApplication.instance()
+        if self.app is None:
+            self.app = QApplication(sys.argv)
+            
+        # Make sure we have a properly set up event loop first 
+        from resources.events.utils import ensure_event_loop, run_async_in_thread
+        from resources.events.loop_management import EventLoopManager
+        
+        # Ensure we have a valid event loop in the main thread
+        self.loop = ensure_event_loop()
+        # Keep track of thread context for diagnostic purposes
+        current_thread_id = threading.get_ident()
+        is_main_thread = threading.current_thread() is threading.main_thread()
+        logger.info(f"Initialized event loop {id(self.loop)} on {'main' if is_main_thread else 'worker'} thread {current_thread_id}")
+        
+        # Register this loop as primary if we're in the main thread
+        if is_main_thread:
+            primary_loop = EventLoopManager.get_primary_loop()
+            if not primary_loop or id(primary_loop) != id(self.loop):
+                result = EventLoopManager.set_primary_loop(self.loop)
+                if result:
+                    self._loop_registered_as_primary = True
+                    logger.info(f"Registered application loop {id(self.loop)} as primary in main thread")
+        
+        # Initialize the event queue with proper event loop
+        self.event_queue = EventQueue(queue_id="phase_one_queue")
+        
+        # Store the event loop ID that created the queue for diagnostics
+        logger.info(f"EventQueue created on thread {self.event_queue._creation_thread_id}")
+        
+        # Track tasks and resources
+        self._tasks = set()
+        self._initialized = False
+        
+    async def setup_async(self):
+        """Initialize components that require the event loop."""
+        if self._initialized:
+            logger.info("Application already initialized")
+            return
+        
+        # First try to use EventLoopManager if available
+        try:
+            from resources.events.loop_management import EventLoopManager
+            self.loop = EventLoopManager.get_primary_loop() or EventLoopManager.ensure_event_loop()
+            
+            # If we're in the main thread, ensure this is the primary loop
+            if threading.current_thread() is threading.main_thread() and not EventLoopManager.get_primary_loop():
+                EventLoopManager.set_primary_loop(self.loop)
+                
+        except (ImportError, AttributeError):
+            # Fall back to ensure_event_loop if EventLoopManager is not available
+            from resources.events.utils import ensure_event_loop, run_async_in_thread
+            self.loop = ensure_event_loop()
+        
+        # Store thread context for diagnostics
+        current_thread_id = threading.get_ident()
+        is_main_thread = threading.current_thread() is threading.main_thread()
+        logger.info(f"Using event loop {id(self.loop)} in {'main' if is_main_thread else 'worker'} thread {current_thread_id} for setup_async")
+        
+        # Make sure this loop is set as the current event loop
+        asyncio.set_event_loop(self.loop)
+        
+        # Initialize health check tracking
+        self._last_loop_health_check = time.time()
+        self._healthcheck_timer = QTimer()
+        self._healthcheck_timer.timeout.connect(self._check_event_loop_health)
+        # Run health check every 30 seconds
+        self._healthcheck_timer.start(30000)
+        
+        # Start the event queue with additional error handling
+        logger.info("Starting the event queue")
+        try:
+            # We should NOT manually override the event queue's loop references
+            # Let EventLoopManager handle the proper loop registration and tracking
+            # This ensures the event queue uses the correct loop context throughout its lifecycle
+            
+            # Simply start the event queue and let it manage its own loop context
+            # The EventQueue.start() method will use EventLoopManager.submit_to_resource_loop
+            # to ensure it runs in the correct loop context
+            await self.event_queue.start()
+            logger.info(f"Event queue started successfully")
+        except Exception as e:
+            logger.error(f"Error starting event queue: {e}", exc_info=True)
+            raise
+        
+        # Initialize centralized resource and circuit breaker coordinators
+        self.circuit_registry = CircuitBreakerRegistry(self.event_queue)
+        self.resource_coordinator = ResourceCoordinator(self.event_queue)
+        
+        # Define all managers to be registered
+        managers_to_register = [
+            ("state_manager", StateManager(self.event_queue), []),
+            ("context_manager", AgentContextManager(self.event_queue), ["state_manager"]),
+            ("cache_manager", CacheManager(self.event_queue), ["state_manager"]),
+            ("metrics_manager", MetricsManager(self.event_queue), ["state_manager"]),
+            ("error_handler", ErrorHandler(self.event_queue), ["state_manager"]),
+            ("memory_monitor", MemoryMonitor(self.event_queue), []),
+            ("health_tracker", HealthTracker(self.event_queue), []),
+            ("system_monitor", SystemMonitor(self.event_queue, None, None), ["memory_monitor", "health_tracker"]),
+            ("error_recovery", SystemErrorRecovery(self.event_queue, None), ["state_manager", "health_tracker"])
+        ]
+        
+        # Register all managers and store references
+        logger.info(f"Registering {len(managers_to_register)} resource managers")
+        for name, manager, deps in managers_to_register:
+            self.resource_coordinator.register_manager(name, manager, dependencies=deps)
+            setattr(self, name, manager)
+        
+        # Update manager references that need other managers
+        self.system_monitor.memory_monitor = self.memory_monitor
+        self.system_monitor.health_tracker = self.health_tracker
+        self.error_recovery._health_tracker = self.health_tracker
+        
+        # Initialize all components in dependency order using the centralized coordinator
+        logger.info("Starting coordinated initialization of all resource managers")
+        try:
+            # Call initialize_all() directly and await it
+            # Don't create a separate variable for the coroutine to avoid trying to await it twice
+            await self.resource_coordinator.initialize_all()
+            logger.info("✅ All resource managers initialized successfully")
+        except Exception as e:
+            logger.error(f"Error during resource initialization: {e}", exc_info=True)
+            raise
+        
+        # Initialize Minimal Phase Zero orchestrator 
+        logger.info("Initializing Minimal Phase Zero orchestrator")
+        self.phase_zero = MinimalPhaseZeroOrchestrator(
+            self.event_queue,
+            self.state_manager,
+            self.context_manager,
+            self.cache_manager,
+            self.metrics_manager,
+            self.error_handler,
+            health_tracker=self.health_tracker,
+            memory_monitor=self.memory_monitor,
+            system_monitor=self.system_monitor
+        )
+        
+        # Initialize Phase One agents and workflow manually instead of using the PhaseOneOrchestrator directly
+        logger.info("Initializing Phase One agents and workflow")
+        try:
+            # Initialize agents with necessary parameters
+            garden_planner = GardenPlannerAgent(
+                "garden_planner",
+                self.event_queue,
+                self.state_manager,
+                self.context_manager,
+                self.cache_manager,
+                self.metrics_manager,
+                self.error_handler,
+                self.memory_monitor,
+                self.health_tracker
+            )
+            
+            earth_agent = EarthAgent(
+                "earth_agent",
+                self.event_queue,
+                self.state_manager,
+                self.context_manager,
+                self.cache_manager,
+                self.metrics_manager,
+                self.error_handler,
+                self.memory_monitor,
+                self.health_tracker
+            )
+            
+            env_analysis = EnvironmentalAnalysisAgent(
+                "environmental_analysis",
+                self.event_queue,
+                self.state_manager,
+                self.context_manager,
+                self.cache_manager,
+                self.metrics_manager,
+                self.error_handler,
+                self.memory_monitor,
+                self.health_tracker
+            )
+            
+            root_system = RootSystemArchitectAgent(
+                "root_system_architect",
+                self.event_queue,
+                self.state_manager,
+                self.context_manager,
+                self.cache_manager,
+                self.metrics_manager,
+                self.error_handler,
+                self.memory_monitor,
+                self.health_tracker
+            )
+            
+            tree_placement = TreePlacementPlannerAgent(
+                "tree_placement_planner",
+                self.event_queue,
+                self.state_manager,
+                self.context_manager,
+                self.cache_manager,
+                self.metrics_manager,
+                self.error_handler,
+                self.memory_monitor,
+                self.health_tracker
+            )
+            
+            # Create workflow
+            workflow = PhaseOneWorkflow(
+                garden_planner,
+                earth_agent,
+                env_analysis,
+                root_system,
+                tree_placement,
+                self.event_queue,
+                self.state_manager
+            )
+            
+            # Initialize Phase One orchestrator
+            logger.info("Initializing Phase One orchestrator with pre-initialized agents")
+            self.phase_one = PhaseOneOrchestrator(
+                self.event_queue,
+                self.state_manager,
+                self.context_manager,
+                self.cache_manager,
+                self.metrics_manager,
+                self.error_handler,
+                error_recovery=self.error_recovery,
+                phase_zero=self.phase_zero,
+                health_tracker=self.health_tracker,
+                memory_monitor=self.memory_monitor,
+                system_monitor=self.system_monitor,
+                # Pass pre-initialized agents and workflow
+                garden_planner_agent=garden_planner,
+                earth_agent=earth_agent,
+                environmental_analysis_agent=env_analysis,
+                root_system_architect_agent=root_system,
+                tree_placement_planner_agent=tree_placement,
+                workflow=workflow
+            )
+        except Exception as e:
+            logger.error(f"Error initializing Phase One orchestrator: {e}", exc_info=True)
+            raise
+        
+        # Create the interface for display
+        self.phase_one_interface = PhaseOneInterface(self.phase_one)
+        
+        # Initialize UI
+        logger.info("Initializing UI")
+        self.main_window = ForestDisplay(
+            self.event_queue,
+            self.phase_one_interface,
+            self.system_monitor
+        )
+        self.main_window.show()
+        
+        # Event processing will be handled by background thread
+        # No timer needed - eliminates event loop switching issues
+        
+        self._initialized = True
+        logger.info("Phase One App setup complete")
+        
+    # REMOVED: check_events_queue method - was causing event loop switching issues
+    # Event processing now handled by background thread architecture
+            
+            # Use cached event loop if available, otherwise create one
+            if not hasattr(self, '_persistent_loop') or self._persistent_loop is None or self._persistent_loop.is_closed():
+                # Only call ensure_event_loop if we don't have a valid cached loop
+                loop = ensure_event_loop()
+                self._persistent_loop = loop
+                logger.debug(f"Created new persistent event loop {id(loop)}")
+            else:
+                # Reuse existing cached loop
+                loop = self._persistent_loop
+                logger.debug(f"Reusing cached event loop {id(loop)}")
+            
+            # Log with clear thread context
+            current_thread_id = threading.get_ident()
+            is_main_thread = threading.current_thread() is threading.main_thread()
+            logger.debug(f"Using event loop {id(loop)} in {'main' if is_main_thread else 'worker'} thread {current_thread_id}")
+            
+            # Register the loop with EventLoopManager if we're in the main thread
+            if is_main_thread and not hasattr(self, '_loop_registered_as_primary'):
+                primary_loop = EventLoopManager.get_primary_loop()
+                
+                # If no primary loop exists or it's different than our current loop, set this as primary
+                if not primary_loop or id(primary_loop) != id(loop):
+                    result = EventLoopManager.set_primary_loop(loop)
+                    if result:
+                        self._loop_registered_as_primary = True
+                        logger.info(f"Registered loop {id(loop)} as primary in main thread {current_thread_id}")
+                else:
+                    # Already registered
+                    self._loop_registered_as_primary = True
+            
+            # Get a reference to the current loop
+            loop = self._persistent_loop
+            
+            # With our new implementation, the event queue has its own dedicated thread and loop
+            # We should NOT manually update its loop reference, as that will break the queue's processing
+            # The code below is commented out to prevent breaking the queue's dedicated thread/loop model
+            
+            # REMOVED: This was causing issues by forcing the event queue to use the main thread's loop
+            # when it should be using its own dedicated thread's loop
+            #if hasattr(self.event_queue, '_creation_loop_id'):
+            #    if self.event_queue._creation_loop_id != id(loop):
+            #        logger.warning(f"Fixing event queue loop reference from {self.event_queue._creation_loop_id} to {id(loop)}")
+            #        self.event_queue._creation_loop_id = id(loop)
+            #        self.event_queue._loop_thread_id = threading.get_ident()
+            
+            # Process events with enhanced error handling
+            while events_processed < max_events:
+                # Use get_nowait to avoid blocking the UI thread
+                try:
+                    # Ensure we're using the persistent loop
+                    asyncio.set_event_loop(self._persistent_loop)
+                    
+                    # Get event from queue with proper error handling
+                    try:
+                        event = self.event_queue.get_nowait()
+                    except (RuntimeError, AttributeError) as e:
+                        error_msg = str(e).lower()
+                        if "no running event loop" in error_msg or "has no attribute" in error_msg or "different event loop" in error_msg:
+                            # Handle issues with event loop
+                            logger.warning(f"Event loop issue detected: {error_msg}")
+                            # Only create new loop if current one is invalid
+                            if self._persistent_loop is None or self._persistent_loop.is_closed():
+                                loop = ensure_event_loop()
+                                self._persistent_loop = loop
+                                logger.debug(f"Created recovery event loop {id(loop)}")
+                            else:
+                                # Reuse existing valid loop
+                                loop = self._persistent_loop
+                                logger.debug(f"Reusing existing loop for recovery {id(loop)}")
+                            asyncio.set_event_loop(loop)
+                            
+                            # REMOVED: This was causing issues by forcing the event queue to use the main thread's loop
+                            # With our new implementation, the event queue has its own dedicated thread and loop
+                            # We should NOT manually update its loop reference
+                            # self.event_queue._creation_loop_id = id(loop)
+                            # self.event_queue._loop_thread_id = threading.get_ident()
+                            
+                            # Try one more time
+                            try:
+                                event = self.event_queue.get_nowait()
+                            except asyncio.QueueEmpty:
+                                # No events to process
+                                break
+                        else:
+                            raise
+                            
+                    if not event:
+                        break
+                        
+                    events_processed += 1
+                    # Process the event (simplified for testing)
+                    logger.debug(f"Processing event: {event.event_type}")
+                except asyncio.QueueEmpty:
+                    # No more events to process
+                    break
+                except Exception as e:
+                    logger.error(f"Error getting event: {e}")
+                    # Don't break immediately on error - continue to process events if possible
+                    if events_processed == 0:  # Only break if we haven't processed any events
+                        break
+                        
+            # Schedule another check if we processed the maximum number of events
+            # This ensures we continue processing if there are more events
+            # Use small delay to prevent tight loop and excessive event loop creation
+            if events_processed >= max_events:
+                QTimer.singleShot(5, self.check_events_queue)  # 5ms delay prevents tight loop
+                
+        except Exception as e:
+            logger.error(f"Event processing error: {e}", exc_info=True)
+            # Re-schedule event check after a short delay to recover from errors
+            QTimer.singleShot(100, self.check_events_queue)
+            
+    def register_task(self, coro):
+        """Register and track an asyncio task with improved event loop handling."""
+        try:
+            # Try to get the running loop
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            # No running loop, get or create one
+            try:
+                loop = asyncio.get_event_loop()
+            except RuntimeError:
+                # No event loop in this thread, create a new one
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                logger.info(f"Created new event loop in thread {threading.get_ident()}")
+        
+        if isinstance(coro, asyncio.Task):
+            task = coro
+        else:
+            task = loop.create_task(coro)
+            
+        # Add task lifecycle management
+        def _on_task_complete(task):
+            self._tasks.discard(task)
+            # Check health after task completion
+            if hasattr(self, "_last_loop_health_check") and time.time() - self._last_loop_health_check > 10:
+                self._check_event_loop_health()
+        
+        task.add_done_callback(_on_task_complete)
+        self._tasks.add(task)
+        return task
+        
+    def _check_event_loop_health(self):
+        """Perform health check on the event loop."""
+        try:
+            self._last_loop_health_check = time.time()
+            current_thread = threading.get_ident()
+            
+            # Try to get the current event loop
+            try:
+                loop = asyncio.get_running_loop()
+                loop_status = "running"
+            except RuntimeError:
+                try:
+                    loop = asyncio.get_event_loop()
+                    loop_status = "available"
+                except RuntimeError:
+                    logger.warning(f"No event loop available in thread {current_thread}")
+                    # Create a new event loop
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    loop_status = "created"
+                    logger.info(f"Created new event loop in thread {current_thread} during health check")
+            
+            # Check if loop is closed
+            if loop.is_closed():
+                logger.warning(f"Event loop is closed in thread {current_thread}, creating new one")
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                loop_status = "recreated"
+            
+            # Check number of pending tasks
+            try:
+                pending_tasks = len(asyncio.all_tasks(loop))
+            except RuntimeError:
+                pending_tasks = len(self._tasks)
+                
+            logger.debug(f"Event loop health: status={loop_status}, thread={current_thread}, "
+                        f"pending_tasks={pending_tasks}, app_tasks={len(self._tasks)}")
+            
+            # Ensure event queue has a valid loop
+            if hasattr(self, 'event_queue'):
+                if not hasattr(self.event_queue, '_creation_thread_id'):
+                    logger.warning("Event queue missing thread context attributes")
+                elif self.event_queue._creation_thread_id != current_thread:
+                    logger.debug(f"Event queue thread mismatch: queue={self.event_queue._creation_thread_id}, "
+                                f"current={current_thread}")
+            
+            return {
+                "status": loop_status,
+                "thread_id": current_thread,
+                "loop_id": id(loop),
+                "pending_tasks": pending_tasks,
+                "app_tasks": len(self._tasks),
+                "timestamp": time.time()
+            }
+                
+        except Exception as e:
+            logger.error(f"Error checking event loop health: {e}")
+            return {
+                "status": "error",
+                "error": str(e),
+                "timestamp": time.time()
+            }
+        
+    def run(self):
+        """Run the application main loop."""
+        try:
+            # Show the main window
+            if hasattr(self, 'main_window') and not self.main_window.isVisible():
+                self.main_window.show()
+                
+            # Make sure the event timer is running
+            if hasattr(self, 'event_timer') and not self.event_timer.isActive():
+                self.event_timer.start(100)
+                
+            # Setup signal handlers
+            self._setup_signal_handlers()
+            
+            # Set up exception hook
+            sys.excepthook = self._global_exception_handler
+            
+            # Run the Qt event loop
+            logger.info("Starting application main loop")
+            self.app._is_running = True
+            try:
+                return self.app.exec()
+            finally:
+                self.app._is_running = False
+        except Exception as e:
+            logger.error(f"Runtime error: {e}", exc_info=True)
+            self._handle_fatal_error("Runtime error", e)
+            return 1
+            
+    def _setup_signal_handlers(self):
+        """Set up signal handlers for clean shutdown."""
+        if hasattr(signal, 'SIGINT') and sys.platform != 'win32':
+            loop = asyncio.get_event_loop()
+            for signame in ('SIGINT', 'SIGTERM'):
+                if hasattr(signal, signame):
+                    try:
+                        loop.add_signal_handler(
+                            getattr(signal, signame),
+                            lambda signame=signame: self._handle_signal(signame)
+                        )
+                        logger.debug(f"Added signal handler for {signame}")
+                    except NotImplementedError:
+                        signal.signal(
+                            getattr(signal, signame),
+                            lambda signum, frame, signame=signame: self._handle_signal(signame)
+                        )
+                        logger.debug(f"Added fallback signal handler for {signame}")
+                        
+    def _handle_signal(self, signame):
+        """Handle a signal in the main thread safely."""
+        logger.info(f"Received signal {signame}, initiating shutdown")
+        # Schedule the app to quit safely from the main thread
+        QTimer.singleShot(0, self.app.quit)
+        
+    def _global_exception_handler(self, exc_type, exc_value, exc_traceback):
+        """Global exception handler for unhandled exceptions."""
+        # Skip for KeyboardInterrupt
+        if issubclass(exc_type, KeyboardInterrupt):
+            logger.info("Keyboard interrupt received")
+            sys.__excepthook__(exc_type, exc_value, exc_traceback)
+            return
+            
+        # Log the exception
+        error_msg = ''.join(traceback.format_exception(exc_type, exc_value, exc_traceback))
+        logger.critical(f"Unhandled exception: {error_msg}")
+        
+        # Show error dialog
+        self._show_error_dialog("Unhandled Exception", error_msg)
+        
+    def _show_error_dialog(self, title, message):
+        """Show an error dialog safely from the main thread."""
+        if hasattr(self, 'main_window') and self.main_window is not None:
+            QMessageBox.critical(self.main_window, title, message)
+        else:
+            QMessageBox.critical(None, title, message)
+            
+    def _handle_fatal_error(self, context: str, error: Exception):
+        """Handle fatal errors with improved diagnostics and cleanup."""
+        # Format traceback
+        tb = ''.join(traceback.format_exception(type(error), error, error.__traceback__))
+        error_msg = f"{context}:\n\n{tb}"
+        
+        # Log the error
+        logger.critical(error_msg)
+        
+        # Show message box
+        QMessageBox.critical(
+            None,
+            "Fatal Error",
+            f"A fatal error has occurred:\n\n{error}\n\nThe application will now exit."
+        )
+        
+        # Force exit on fatal errors
+        sys.exit(1)
+        
+    def close(self):
+        """Clean up resources in the correct sequence."""
+        logger.info("Application shutdown initiated")
+        
+        # Stop all timers
+        if hasattr(self, 'event_timer') and self.event_timer.isActive():
+            self.event_timer.stop()
+            
+        # Stop health check timer
+        if hasattr(self, '_healthcheck_timer') and self._healthcheck_timer.isActive():
+            self._healthcheck_timer.stop()
+            
+        # Process pending Qt events
+        self.app.processEvents()
+        
+        # Cancel all async tasks
+        for task in list(self._tasks):
+            if not task.done() and not task.cancelled():
+                task.cancel()
+        
+        # Log circuit breaker creation summary
+        if hasattr(self, 'circuit_registry') and hasattr(self.circuit_registry, 'log_creation_summary'):
+            try:
+                self.circuit_registry.log_creation_summary()
+            except Exception as e:
+                logger.error(f"Error logging circuit breaker summary: {e}")
+        elif hasattr(self, 'circuit_registry'):
+            logger.debug("Circuit registry doesn't have log_creation_summary method")
+                
+        # Cleanup Phase One orchestrator
+        if hasattr(self, 'phase_one'):
+            try:
+                # Try to get a valid event loop
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    try:
+                        loop = asyncio.get_event_loop()
+                    except RuntimeError:
+                        # Create a new event loop if needed
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        
+                # Check if loop is running, if not, run it in new thread to process coroutines
+                if not loop.is_running():
+                    # Create a new thread to run the shutdown coroutine
+                    def run_shutdown():
+                        asyncio.set_event_loop(loop)
+                        loop.run_until_complete(self.phase_one.shutdown())
+                        
+                    shutdown_thread = threading.Thread(target=run_shutdown)
+                    shutdown_thread.daemon = True
+                    shutdown_thread.start()
+                    shutdown_thread.join(timeout=5.0)
+                else:
+                    # Use run_coroutine_threadsafe for running loop
+                    future = asyncio.run_coroutine_threadsafe(
+                        self.phase_one.shutdown(),
+                        loop
+                    )
+                    future.result(timeout=5.0)
+            except Exception as e:
+                logger.error(f"Error shutting down Phase One: {e}", exc_info=True)
+                
+        # Cleanup UI components
+        if hasattr(self, 'main_window'):
+            try:
+                self.main_window.close()
+            except Exception as e:
+                logger.error(f"Error closing main window: {e}")
+                
+        # Shutdown event queue last
+        if hasattr(self, 'event_queue'):
+            try:
+                # Try to get a valid event loop
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    try:
+                        loop = asyncio.get_event_loop()
+                    except RuntimeError:
+                        # Create a new event loop if needed
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        
+                # Check if loop is running, if not, run it in new thread to process coroutines
+                if not loop.is_running():
+                    # Create a new thread to run the stop coroutine
+                    def run_stop():
+                        asyncio.set_event_loop(loop)
+                        loop.run_until_complete(self.event_queue.stop())
+                        
+                    stop_thread = threading.Thread(target=run_stop)
+                    stop_thread.daemon = True
+                    stop_thread.start()
+                    stop_thread.join(timeout=5.0)
+                else:
+                    # Use run_coroutine_threadsafe for running loop
+                    future = asyncio.run_coroutine_threadsafe(
+                        self.event_queue.stop(),
+                        loop
+                    )
+                    future.result(timeout=5.0)
+            except Exception as e:
+                logger.error(f"Error stopping event queue: {e}", exc_info=True)
+                
+        logger.info("Application shutdown complete")
+
+async def main():
+    """Main function to initialize and run the application."""
+    # Use the global variable without declaring it again
+    phase_one_app = None
+    try:
+        # The event loop should already be set up by qasync
+        loop = asyncio.get_event_loop()
+        logger.info(f"Main function running in event loop {id(loop)}")
+        
+        # Ensure loop is available globally and through EventLoopManager
+        global APPLICATION_MAIN_LOOP
+        if APPLICATION_MAIN_LOOP is None:
+            APPLICATION_MAIN_LOOP = loop
+            
+        # Register with EventLoopManager for consistent access
+        from resources.events.loop_management import EventLoopManager
+        result = EventLoopManager.set_primary_loop(loop)
+        logger.info(f"Registered event loop with EventLoopManager in main(): {result}")
+        
+        # Create the application instance with deferred initialization
+        phase_one_app = PhaseOneApp()
+        
+        # Store loop reference in the app
+        phase_one_app.loop = loop
+        phase_one_app.main_loop = loop
+        
+        # Now perform async initialization
+        logger.info("Running setup_async")
+        await phase_one_app.setup_async()
+        
+        # Configure the main window's async components
+        logger.info("Setting up main window async components")
+        if hasattr(phase_one_app, 'main_window') and hasattr(phase_one_app.main_window, 'setup_async'):
+            await phase_one_app.main_window.setup_async()
+            
+        return phase_one_app
+    except Exception as e:
+        logger.critical("Application failed to start", exc_info=True)
+        QMessageBox.critical(None, "Startup Error", 
+            f"The application failed to start:\n\n{str(e)}")
+        if phase_one_app:
+            phase_one_app.close()
+        return None
+
+# Global reference to main application event loop
+APPLICATION_MAIN_LOOP = None
+
+class PhaseOneCLI:
+    """Command-line interface for Phase One with debugging capabilities."""
+    
+    def __init__(self):
+        self.phase_one_app = None
+        self.debugger = None
+        
+    async def setup_cli(self):
+        """Set up CLI resources without GUI components."""
+        from resources.events.utils import ensure_event_loop, run_async_in_thread
+        from resources.events.loop_management import EventLoopManager
+        
+        # Ensure we have a valid event loop
+        loop = ensure_event_loop()
+        EventLoopManager.set_primary_loop(loop)
+        
+        # Initialize event queue and managers
+        event_queue = EventQueue(queue_id="phase_one_cli_queue")
+        await event_queue.start()
+        
+        # Initialize resource managers
+        state_manager = StateManager(event_queue)
+        context_manager = AgentContextManager(event_queue)
+        cache_manager = CacheManager(event_queue)
+        metrics_manager = MetricsManager(event_queue)
+        error_handler = ErrorHandler(event_queue)
+        memory_monitor = MemoryMonitor(event_queue)
+        health_tracker = HealthTracker(event_queue)
+        system_monitor = SystemMonitor(event_queue, memory_monitor, health_tracker)
+        error_recovery = SystemErrorRecovery(event_queue, health_tracker)
+        
+        # Initialize Minimal Phase Zero orchestrator 
+        phase_zero = MinimalPhaseZeroOrchestrator(
+            event_queue,
+            state_manager,
+            context_manager,
+            cache_manager,
+            metrics_manager,
+            error_handler,
+            health_tracker=health_tracker,
+            memory_monitor=memory_monitor,
+            system_monitor=system_monitor
+        )
+        
+        # Initialize Phase One agents
+        garden_planner = GardenPlannerAgent(
+            "garden_planner",
+            event_queue,
+            state_manager,
+            context_manager,
+            cache_manager,
+            metrics_manager,
+            error_handler,
+            memory_monitor,
+            health_tracker
+        )
+        
+        earth_agent = EarthAgent(
+            "earth_agent",
+            event_queue,
+            state_manager,
+            context_manager,
+            cache_manager,
+            metrics_manager,
+            error_handler,
+            memory_monitor,
+            health_tracker
+        )
+        
+        env_analysis = EnvironmentalAnalysisAgent(
+            "environmental_analysis",
+            event_queue,
+            state_manager,
+            context_manager,
+            cache_manager,
+            metrics_manager,
+            error_handler,
+            memory_monitor,
+            health_tracker
+        )
+        
+        root_system = RootSystemArchitectAgent(
+            "root_system_architect",
+            event_queue,
+            state_manager,
+            context_manager,
+            cache_manager,
+            metrics_manager,
+            error_handler,
+            memory_monitor,
+            health_tracker
+        )
+        
+        tree_placement = TreePlacementPlannerAgent(
+            "tree_placement_planner",
+            event_queue,
+            state_manager,
+            context_manager,
+            cache_manager,
+            metrics_manager,
+            error_handler,
+            memory_monitor,
+            health_tracker
+        )
+        
+        # Create workflow
+        workflow = PhaseOneWorkflow(
+            garden_planner,
+            earth_agent,
+            env_analysis,
+            root_system,
+            tree_placement,
+            event_queue,
+            state_manager
+        )
+        
+        # Initialize Phase One orchestrator
+        phase_one = PhaseOneOrchestrator(
+            event_queue,
+            state_manager,
+            context_manager,
+            cache_manager,
+            metrics_manager,
+            error_handler,
+            error_recovery=error_recovery,
+            phase_zero=phase_zero,
+            health_tracker=health_tracker,
+            memory_monitor=memory_monitor,
+            system_monitor=system_monitor,
+            garden_planner_agent=garden_planner,
+            earth_agent=earth_agent,
+            environmental_analysis_agent=env_analysis,
+            root_system_architect_agent=root_system,
+            tree_placement_planner_agent=tree_placement,
+            workflow=workflow
+        )
+        
+        # Create debugger
+        self.debugger = PhaseOneDebugger(phase_one)
+        
+        # Store references for cleanup
+        self.event_queue = event_queue
+        self.phase_one = phase_one
+        
+    async def run_interactive_mode(self):
+        """Run interactive debugging mode."""
+        print("🌲 Phase One CLI - Interactive Debug Mode")
+        print("Setting up system...")
+        
+        try:
+            await self.setup_cli()
+            print("✅ System initialized successfully!")
+            await self.debugger.start_interactive_session()
+        except Exception as e:
+            logger.error(f"CLI setup failed: {e}", exc_info=True)
+            print(f"❌ Setup failed: {str(e)}")
+            
+    async def run_single_prompt(self, prompt: str, output_file: Optional[str] = None):
+        """Run a single prompt and exit."""
+        print("🌲 Phase One CLI - Single Prompt Mode")
+        print("Setting up system...")
+        
+        try:
+            await self.setup_cli()
+            print("✅ System initialized successfully!")
+            
+            operation_id = f"cli_{datetime.now().isoformat().replace(':', '-')}"
+            result = await self.phase_one.process_task(prompt, operation_id)
+            
+            # Use debugger's pretty printing
+            self.debugger._print_execution_result(result)
+            
+            # Save to file if requested
+            if output_file:
+                with open(output_file, 'w') as f:
+                    json.dump(result, f, indent=2)
+                print(f"📁 Result saved to: {output_file}")
+                
+        except Exception as e:
+            logger.error(f"CLI execution failed: {e}", exc_info=True)
+            print(f"❌ Execution failed: {str(e)}")
+            
+    async def cleanup(self):
+        """Clean up CLI resources."""
+        if hasattr(self, 'phase_one') and self.phase_one:
+            try:
+                await self.phase_one.shutdown()
+            except Exception as e:
+                logger.error(f"Error shutting down Phase One: {e}")
+        
+        if hasattr(self, 'event_queue') and self.event_queue:
+            try:
+                await self.event_queue.stop()
+            except Exception as e:
+                logger.error(f"Error stopping event queue: {e}")
+
+async def run_cli_mode(args):
+    """Run in CLI mode based on arguments."""
+    cli = PhaseOneCLI()
+    
+    try:
+        if args.interactive or args.debug:
+            await cli.run_interactive_mode()
+        elif args.prompt:
+            await cli.run_single_prompt(args.prompt, args.output)
+        elif args.file:
+            with open(args.file, 'r') as f:
+                prompt = f.read()
+            await cli.run_single_prompt(prompt, args.output)
+        else:
+            # Default to interactive mode
+            await cli.run_interactive_mode()
+    finally:
+        await cli.cleanup()
+
+def parse_arguments():
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(
+        description='Phase One Standalone Runner - GUI and CLI modes',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  python run_phase_one.py                    # Run GUI mode (default)
+  python run_phase_one.py --cli              # Run CLI interactive mode
+  python run_phase_one.py --debug            # Run CLI debug mode
+  python run_phase_one.py -p "Create a web app"  # Single prompt execution
+  python run_phase_one.py -f prompt.txt      # Execute prompt from file
+  python run_phase_one.py -p "..." -o result.json  # Save result to file
+        """
+    )
+    
+    # Mode selection
+    mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument('--gui', action='store_true', 
+                           help='Run in GUI mode (default)')
+    mode_group.add_argument('--cli', action='store_true',
+                           help='Run in CLI interactive mode')
+    mode_group.add_argument('--debug', action='store_true',
+                           help='Run in CLI debug mode with step-by-step execution')
+    
+    # Input options
+    input_group = parser.add_mutually_exclusive_group()
+    input_group.add_argument('-p', '--prompt', type=str,
+                            help='Execute a single prompt')
+    input_group.add_argument('-f', '--file', type=str,
+                            help='Execute prompt from file')
+    input_group.add_argument('-i', '--interactive', action='store_true',
+                            help='Run in interactive mode')
+    
+    # Output options
+    parser.add_argument('-o', '--output', type=str,
+                       help='Save result to output file (JSON format)')
+    
+    # Logging options
+    parser.add_argument('--log-level', choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'],
+                       default='INFO', help='Set logging level')
+    parser.add_argument('--log-file', type=str, default='run_phase_one.log',
+                       help='Log file path')
+    
+    return parser.parse_args()
+
+if __name__ == "__main__":
+    # Parse command line arguments
+    args = parse_arguments()
+    
+    # Configure logging based on arguments
+    logging.basicConfig(
+        level=getattr(logging, args.log_level),
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(args.log_file),
+            logging.StreamHandler()
+        ]
+    )
+    
+    # Determine mode - CLI takes precedence over GUI
+    cli_mode = args.cli or args.debug or args.interactive or args.prompt or args.file
+    
+    if cli_mode:
+        # Run in CLI mode
+        try:
+            asyncio.run(run_cli_mode(args))
+        except KeyboardInterrupt:
+            print("\n🛑 Interrupted by user")
+        except Exception as e:
+            logger.critical(f"CLI mode failed: {e}", exc_info=True)
+            print(f"❌ Fatal error: {str(e)}")
+            sys.exit(1)
+    else:
+        # Run in GUI mode (default)
+        try:
+            # Create the Qt application
+            app = QApplication.instance() or QApplication(sys.argv)
+            app._is_running = False  # Add flag to track event loop state
+            
+            # Configure qasync
+            loop = qasync.QEventLoop(app)
+            asyncio.set_event_loop(loop)
+            logger.info(f"Created qasync event loop: {id(loop)}")
+            
+            # Store the loop in the global variable for consistent access
+            APPLICATION_MAIN_LOOP = loop
+            
+            # Register with EventLoopManager for consistent access
+            from resources.events.loop_management import EventLoopManager
+            result = EventLoopManager.set_primary_loop(loop)
+            logger.info(f"Registered main event loop with EventLoopManager: {result}")
+            
+            # Initialize the phase_one_app variable
+            phase_one_app = None
+            
+            # Run the application with proper cleanup
+            with loop:
+                try:
+                    # Initialize the application
+                    logger.info("Running main() to initialize application")
+                    phase_one_app = loop.run_until_complete(main())
+                    
+                    if phase_one_app:
+                        # Replace the exception hook with the application's version
+                        sys.excepthook = phase_one_app._global_exception_handler
+                        
+                        # Start the application
+                        logger.info("Starting application main loop")
+                        exit_code = phase_one_app.run()
+                    else:
+                        logger.error("Application initialization failed")
+                        exit_code = 1
+                finally:
+                    # Clean up properly
+                    if phase_one_app:
+                        try:
+                            logger.info("Closing application")
+                            phase_one_app.close()
+                        except Exception as e:
+                            logger.error(f"Error during application cleanup: {e}", exc_info=True)
+                            
+            # Final cleanup
+            logger.info("Processing final events")
+            app.processEvents()
+            
+            # Quit only if the app isn't already being quit
+            if not app._is_running:
+                logger.info("Quitting application")
+                app.quit()
+                
+            logger.info(f"Exiting with code {exit_code}")
+            sys.exit(exit_code)
+        except Exception as e:
+            logger.critical("Failed to initialize application", exc_info=True)
+            # Show error dialog for truly catastrophic failures
+            try:
+                QMessageBox.critical(None, "Fatal Error", 
+                    f"The application failed catastrophically:\n\n{str(e)}")
+            except:
+                print(f"FATAL ERROR: {e}")
+                traceback.print_exc()
+            sys.exit(1)
