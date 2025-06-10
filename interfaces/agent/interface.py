@@ -10,6 +10,8 @@ import weakref
 from datetime import datetime
 from typing import Dict, List, Any, Optional, Tuple, Union
 
+from resources.events.qasync_utils import qasync_wait_for, get_qasync_compatible_loop
+
 from resources import (
     EventQueue,
     StateManager,
@@ -187,36 +189,14 @@ class AgentInterface(BaseInterface):
             logger.debug(f"Agent {self.agent_id}: Confirming state {new_state.name}")
         
         try:
-            # Ensure we have a running event loop before attempting state operations
-            try:
-                asyncio.get_running_loop()
-            except RuntimeError:
-                # No running event loop - use EventLoopManager to ensure proper context
-                from resources.events.loop_management import EventLoopManager
-                primary_loop = EventLoopManager.get_primary_loop()
-                if primary_loop and not primary_loop.is_closed():
-                    # Set the primary loop as the current thread's event loop
-                    asyncio.set_event_loop(primary_loop)
-                else:
-                    EventLoopManager.ensure_event_loop()
+            # Use qasync-compatible event loop detection for robustness
+            loop = get_qasync_compatible_loop()
+            logger.debug(f"Using event loop {id(loop)} for agent state operations")
             
-            # Add timeout wrapper to prevent hanging - using wait_for for Python 3.10 compatibility
+            # Add timeout wrapper to prevent hanging
             try:
-                # Get the current loop to use for wait_for
-                try:
-                    loop = asyncio.get_running_loop()
-                except RuntimeError:
-                    from resources.events.loop_management import EventLoopManager
-                    loop = EventLoopManager.get_primary_loop()
-                    if not loop or loop.is_closed():
-                        loop = EventLoopManager.ensure_event_loop()
-                
-                # Use the loop's wait_for method
-                if hasattr(loop, 'wait_for'):
-                    await loop.wait_for(self._set_agent_state_impl(new_state, resource_states, metadata), timeout=10.0)
-                else:
-                    # Fallback to asyncio.wait_for with the loop context
-                    await asyncio.wait_for(self._set_agent_state_impl(new_state, resource_states, metadata), timeout=10.0)
+                # Use qasync-compatible wait_for for better compatibility
+                await qasync_wait_for(self._set_agent_state_impl(new_state, resource_states, metadata), timeout=10.0)
             except asyncio.TimeoutError:
                 logger.error(f"Overall timeout setting agent state to {new_state}")
                 # Ensure internal state is at least set
@@ -248,7 +228,7 @@ class AgentInterface(BaseInterface):
             # Use adaptive timeout based on operation type
             timeout = self._get_adaptive_timeout(new_state)
             try:
-                await asyncio.wait_for(self._update_resource_state_with_lock(resource_states[new_state], metadata), timeout=timeout)
+                await qasync_wait_for(self._update_resource_state_with_lock(resource_states[new_state], metadata), timeout=timeout)
             except asyncio.TimeoutError:
                 logger.warning(f"State lock timeout for {new_state} after {timeout}s, updating without resource sync")
                 # Agent state is already set, continue without resource state sync
@@ -290,7 +270,7 @@ class AgentInterface(BaseInterface):
         
         for attempt in range(max_retries):
             try:
-                await asyncio.wait_for(
+                await qasync_wait_for(
                     self._acquire_lock_and_update(lock_key, resource_state, metadata), 
                     timeout=timeout
                 )
@@ -585,7 +565,7 @@ class AgentInterface(BaseInterface):
             
             # Wait for the response with timeout
             try:
-                response = await asyncio.wait_for(processing_task, timeout=timeout)
+                response = await qasync_wait_for(processing_task, timeout=timeout)
                 logger.info(f"Agent response received for {request_id}")
                 
             except asyncio.TimeoutError:

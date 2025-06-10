@@ -21,6 +21,12 @@ from .types import Event, ResourceEventTypes
 from .backpressure import EventBackpressureManager
 from .utils import wait_with_backoff, with_timeout
 
+# Import qasync utilities for event loop compatibility
+try:
+    from .qasync_utils import qasync_wait_for
+except ImportError:
+    qasync_wait_for = asyncio.wait_for
+
 logger = logging.getLogger(__name__)
 
 class EventQueue:
@@ -702,7 +708,7 @@ class EventQueue:
             try:
                 # Process high priority queue first - never batched
                 try:
-                    high_priority_event = await asyncio.wait_for(
+                    high_priority_event = await qasync_wait_for(
                         self._async_high_queue.get(), 
                         timeout=0.1
                     )
@@ -718,7 +724,7 @@ class EventQueue:
                     # Try to process normal priority events with batching
                     try:
                         if not batch:  # Start a new batch
-                            normal_priority_event = await asyncio.wait_for(
+                            normal_priority_event = await qasync_wait_for(
                                 self._async_normal_queue.get(),
                                 timeout=0.1
                             )
@@ -774,7 +780,7 @@ class EventQueue:
                 # Try to get event from normal priority queue
                 try:
                     # Use shorter timeout to balance responsiveness
-                    normal_event = await asyncio.wait_for(
+                    normal_event = await qasync_wait_for(
                         self._async_normal_queue.get(), 
                         timeout=0.2
                     )
@@ -810,7 +816,7 @@ class EventQueue:
                     # Only check low priority if normal is empty
                     try:
                         # Use longer timeout for low priority
-                        low_event = await asyncio.wait_for(
+                        low_event = await qasync_wait_for(
                             self._async_low_queue.get(), 
                             timeout=0.5
                         )

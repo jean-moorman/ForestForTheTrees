@@ -19,6 +19,12 @@ from resources.monitoring.memory import MemoryMonitor
 from resources.monitoring.health import HealthTracker
 from resources.monitoring.circuit_breakers import CircuitBreakerRegistry, CircuitBreaker, ReliabilityMetrics
 
+# Import qasync utilities for event loop compatibility
+try:
+    from resources.events.qasync_utils import qasync_wait_for
+except ImportError:
+    qasync_wait_for = asyncio.wait_for
+
 logger = logging.getLogger(__name__)
 
 @dataclass
@@ -209,7 +215,7 @@ class SystemMonitor:
             try:
                 monitoring_task.cancel()
                 try:
-                    await asyncio.wait_for(monitoring_task, timeout=2.0)
+                    await qasync_wait_for(monitoring_task, timeout=2.0)
                 except (asyncio.TimeoutError, asyncio.CancelledError):
                     logger.warning("Monitoring task cancellation timed out or was cancelled")
             except Exception as e:

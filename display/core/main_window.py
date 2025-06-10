@@ -59,11 +59,49 @@ class ForestDisplay(QMainWindow, EventHandlerMixin):
     def _deferred_init_monitoring(self):
         """Initialize monitoring after a short delay to avoid reentrancy."""
         try:
-            loop = asyncio.get_event_loop()
+            loop = self._get_qasync_compatible_loop()
             if loop and not loop.is_closed():
                 loop.create_task(self._init_monitoring())
         except Exception as e:
             logger.error(f"Error in deferred monitoring init: {e}")
+    
+    def _get_qasync_compatible_loop(self) -> asyncio.AbstractEventLoop:
+        """Get event loop with qasync compatibility."""
+        from resources.events.loop_management import EventLoopManager
+        
+        # Strategy 1: Try to get running loop (works in most qasync contexts)
+        try:
+            current_loop = asyncio.get_running_loop()
+            logger.debug(f"Found running loop via asyncio: {id(current_loop)}")
+            return current_loop
+        except RuntimeError:
+            pass
+        
+        # Strategy 2: Use EventLoopManager primary loop (qasync-aware)
+        primary_loop = EventLoopManager.get_primary_loop()
+        if primary_loop and not primary_loop.is_closed():
+            logger.debug(f"Using EventLoopManager primary loop: {id(primary_loop)}")
+            # Ensure this loop is set as the current event loop for the thread
+            try:
+                asyncio.set_event_loop(primary_loop)
+            except Exception as e:
+                logger.debug(f"Could not set primary loop as current: {e}")
+            return primary_loop
+        
+        # Strategy 3: Get thread's default event loop
+        try:
+            thread_loop = asyncio.get_event_loop()
+            logger.debug(f"Using thread event loop: {id(thread_loop)}")
+            return thread_loop
+        except RuntimeError:
+            pass
+        
+        # Strategy 4: Last resort - create new loop
+        logger.warning("No event loop found, creating new one")
+        new_loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(new_loop)
+        EventLoopManager.set_primary_loop(new_loop)
+        return new_loop
 
     def _create_timer(self, interval, callback):
         """Create and track a QTimer."""
@@ -185,14 +223,29 @@ class ForestDisplay(QMainWindow, EventHandlerMixin):
             # Disable the interface immediately
             self.prompt_interface.setEnabled(False)
             
-            # Use direct loop.create_task instead of AsyncHelper to avoid reentrancy
-            loop = asyncio.get_event_loop()
+            # Get the proper qasync loop from EventLoopManager
+            from resources.events.loop_management import EventLoopManager
+            loop = EventLoopManager.get_primary_loop()
+            
             if loop and not loop.is_closed():
+                # Create task in the qasync loop context
                 task = loop.create_task(self._process_prompt_async(prompt))
                 task.add_done_callback(self._handle_prompt_task_done)
+                logger.debug(f"Created prompt processing task in qasync loop {id(loop)}")
             else:
-                logger.error("No event loop available for prompt processing")
-                self.prompt_interface.reset()
+                # Fallback to current thread's loop
+                try:
+                    loop = asyncio.get_event_loop()
+                    if loop and not loop.is_closed():
+                        task = loop.create_task(self._process_prompt_async(prompt))
+                        task.add_done_callback(self._handle_prompt_task_done)
+                        logger.warning(f"Using fallback loop {id(loop)} for prompt processing")
+                    else:
+                        raise RuntimeError("No event loop available")
+                except Exception as fallback_error:
+                    logger.error(f"No event loop available for prompt processing: {fallback_error}")
+                    self.prompt_interface.reset()
+                    return
             
         except Exception as e:
             logger.error(f"Failed to submit prompt: {str(e)}", exc_info=True)
@@ -232,15 +285,10 @@ class ForestDisplay(QMainWindow, EventHandlerMixin):
         if threading.current_thread() is not threading.main_thread():
             raise RuntimeError("GUI operations must run in main thread")
         
-        try:
-            current_loop = asyncio.get_running_loop()
-        except RuntimeError:
-            raise RuntimeError("No running event loop for GUI operations")
-        
-        expected_loop = EventLoopManager.get_primary_loop()
-        if expected_loop and current_loop != expected_loop:
-            logger.warning(f"GUI operation in wrong loop context: {id(current_loop)} vs {id(expected_loop)}")
-            # Continue with operation but log the warning
+        # Get the loop using a robust qasync-aware method
+        from resources.events.qasync_utils import get_qasync_compatible_loop, qasync_wait_for
+        current_loop = get_qasync_compatible_loop()
+        logger.info(f"Using event loop {id(current_loop)} for prompt processing")
         
         try:
             if not prompt.strip():
@@ -262,12 +310,14 @@ class ForestDisplay(QMainWindow, EventHandlerMixin):
                 status = await self.orchestrator.get_step_status(operation_id)
                 logger.info(f"Step {step_num + 1}/{len(total_steps)}: {status.get('current_step', 'unknown')} - {status.get('progress_percentage', 0):.1f}% complete")
                 
-                # Execute next step with timeout protection for each individual step
+                # Execute next step with timeout protection using qasync-compatible approach
                 try:
-                    step_result = await asyncio.wait_for(
-                        self.orchestrator.execute_next_step(operation_id),
-                        timeout=120.0  # 2 minutes per step instead of 5+ minutes total
-                    )
+                    # Use the consistent loop we already obtained
+                    step_coro = self.orchestrator.execute_next_step(operation_id)
+                    step_task = current_loop.create_task(step_coro)
+                    
+                    # Use qasync-compatible wait_for
+                    step_result = await qasync_wait_for(step_task, timeout=120.0)
                     
                     if step_result.get("status") == "error":
                         raise ValueError(f"Step failed: {step_result.get('message', 'Unknown error')}")
@@ -283,7 +333,7 @@ class ForestDisplay(QMainWindow, EventHandlerMixin):
                     if executed_step:
                         step_results[executed_step] = step_result.get("step_result", {})
                         
-                except asyncio.TimeoutError:
+                except (asyncio.TimeoutError, TimeoutError):
                     raise ValueError(f"Step {step_num + 1} timed out after 2 minutes. This may indicate network issues or complex processing.")
             
             # Format result for compatibility with existing GUI expectations

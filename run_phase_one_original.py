@@ -460,54 +460,41 @@ class PhaseOneInterface:
         self.logger = logging.getLogger(__name__)
         
     def process_task(self, prompt: str) -> Dict[str, Any]:
-        """Process task using Phase One orchestrator - synchronous interface for CLI."""
-        self.logger.info(f"Processing task: {prompt}")
+        """Synchronous wrapper for CLI compatibility - clean sync/async boundary."""
+        self.logger.info(f"Processing task (sync wrapper): {prompt}")
         
-        try:
-            from resources.events.loop_management import EventLoopManager
-            import concurrent.futures
-            
-            # Get the primary event loop (the main qasync loop)
-            primary_loop = EventLoopManager.get_primary_loop()
-            
-            if primary_loop and not primary_loop.is_closed():
-                # Use run_coroutine_threadsafe to execute in the primary loop
-                future = asyncio.run_coroutine_threadsafe(
-                    self.phase_one.process_task(prompt), 
-                    primary_loop
-                )
-                
-                # Wait for the result with timeout
-                try:
-                    result = future.result(timeout=300)  # 5 minute timeout
-                    
-                    return {
-                        "status": result.get("status", "unknown"),
-                        "phase_one_outputs": result,
-                        "message": f"Processed task through Phase One: {result.get('status', 'unknown')}"
-                    }
-                except concurrent.futures.TimeoutError:
-                    self.logger.error("Phase One processing timed out after 5 minutes")
-                    return {
-                        "status": "error",
-                        "message": "Processing timed out after 5 minutes",
-                        "phase_one_outputs": {}
-                    }
-            else:
-                self.logger.error("No primary loop available")
+        # Clean sync wrapper - runs in its own thread with dedicated loop
+        import concurrent.futures
+        import threading
+        
+        def run_async_task():
+            """Run the async task in a dedicated thread."""
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                return loop.run_until_complete(self.process_task_async(prompt))
+            finally:
+                loop.close()
+        
+        # Execute in thread pool to avoid blocking main thread
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            future = executor.submit(run_async_task)
+            try:
+                return future.result(timeout=300)  # 5 minute timeout
+            except concurrent.futures.TimeoutError:
+                self.logger.error("Phase One processing timed out after 5 minutes")
                 return {
-                    "status": "error",
-                    "message": "No event loop available for processing",
+                    "status": "error", 
+                    "message": "Processing timed out after 5 minutes",
                     "phase_one_outputs": {}
                 }
-                    
-        except Exception as e:
-            self.logger.error(f"Error processing task: {e}", exc_info=True)
-            return {
-                "status": "error",
-                "message": str(e),
-                "phase_one_outputs": {}
-            }
+            except Exception as e:
+                self.logger.error(f"Error in sync wrapper: {e}", exc_info=True)
+                return {
+                    "status": "error",
+                    "message": str(e), 
+                    "phase_one_outputs": {}
+                }
     
     async def process_task_async(self, prompt: str) -> Dict[str, Any]:
         """Process task using Phase One orchestrator - async interface for GUI."""
@@ -712,8 +699,9 @@ class PhaseOneInterface:
             elif current_step == "completed":
                 return {
                     "status": "completed",
-                    "message": "Phase One workflow already completed",
-                    "operation_id": operation_id
+                    "message": "Phase One workflow completed successfully",
+                    "operation_id": operation_id,
+                    "final_results": state.get("step_results", {})
                 }
             else:
                 # Find current step index and get next
@@ -746,15 +734,74 @@ class PhaseOneInterface:
                         "operation_id": operation_id
                     }
             
-            # Execute the next step
+            # Execute the next step with step-level retry logic
             self.logger.info(f"Executing step '{next_step}' for operation {operation_id}")
             
-            step_result = await self._execute_single_step(
-                next_step, 
-                state.get("prompt", ""), 
-                state.get("step_results", {}),
-                operation_id
-            )
+            # Configuration for step-level retries (for test compatibility)
+            max_step_retries = 2
+            step_retry_delays = [5.0, 10.0]
+            
+            step_result = None
+            for step_attempt in range(max_step_retries + 1):
+                try:
+                    step_result = await self._execute_single_step(
+                        next_step, 
+                        state.get("prompt", ""), 
+                        state.get("step_results", {}),
+                        operation_id
+                    )
+                    
+                    # Check if step failed with retryable error
+                    if step_result.get("status") == "error":
+                        error_message = step_result.get("error", "")
+                        
+                        # Classify error as retryable or non-retryable
+                        non_retryable_patterns = ["required", "missing", "not found", "ValueError"]
+                        is_non_retryable = any(pattern in str(error_message) for pattern in non_retryable_patterns)
+                        
+                        if not is_non_retryable and step_attempt < max_step_retries:
+                            # Retryable error and we have retries left
+                            self.logger.warning(f"Step {next_step} failed with retryable error, retrying in {step_retry_delays[step_attempt]}s: {error_message}")
+                            await asyncio.sleep(step_retry_delays[step_attempt])
+                            continue
+                        else:
+                            # Either non-retryable or out of retries
+                            if is_non_retryable:
+                                self.logger.error(f"Step {next_step} failed with non-retryable error: {error_message}")
+                            else:
+                                self.logger.error(f"Step {next_step} failed after {step_attempt + 1} attempts: {error_message}")
+                            break
+                    else:
+                        # Step succeeded
+                        if step_attempt > 0:
+                            self.logger.info(f"Step {next_step} succeeded after {step_attempt + 1} attempts")
+                        break
+                        
+                except Exception as step_e:
+                    # Handle exceptions from _execute_single_step
+                    error_message = str(step_e)
+                    
+                    # Classify error as retryable or non-retryable
+                    non_retryable_patterns = ["required", "missing", "not found", "ValueError"]
+                    is_non_retryable = any(pattern in error_message for pattern in non_retryable_patterns)
+                    
+                    if not is_non_retryable and step_attempt < max_step_retries:
+                        # Retryable error and we have retries left
+                        self.logger.warning(f"Step {next_step} exception retryable, retrying in {step_retry_delays[step_attempt]}s: {error_message}")
+                        await asyncio.sleep(step_retry_delays[step_attempt])
+                        continue
+                    else:
+                        # Either non-retryable or out of retries - create error result
+                        step_result = {
+                            "status": "error",
+                            "step_name": next_step,
+                            "error": error_message,
+                            "message": f"Step failed: {error_message}",
+                            "attempts": step_attempt + 1,
+                            "non_retryable": is_non_retryable,
+                            "timestamp": datetime.now().isoformat()
+                        }
+                        break
             
             # Update state with step result
             state["current_step"] = next_step
@@ -790,11 +837,19 @@ class PhaseOneInterface:
                 "next_step": step_sequence[step_sequence.index(next_step) + 1] if step_sequence.index(next_step) + 1 < len(step_sequence) else "completed"
             }
             
-        except Exception as e:
-            self.logger.error(f"Error executing next step: {e}", exc_info=True)
+        except KeyboardInterrupt:
+            self.logger.warning(f"User interrupted step execution for operation {operation_id}")
             return {
                 "status": "error",
-                "message": str(e),
+                "message": "User interrupted execution",
+                "operation_id": operation_id
+            }
+        except Exception as e:
+            # This should only catch unexpected system-level errors
+            self.logger.error(f"Unexpected system error in execute_next_step: {e}", exc_info=True)
+            return {
+                "status": "error",
+                "message": f"System error: {str(e)}",
                 "operation_id": operation_id
             }
     
@@ -971,14 +1026,24 @@ class PhaseOneInterface:
                     self.logger.info(f"Retrying {step_name} after {retry_delays[attempt]}s delay...")
                     continue
             
-            except Exception as outer_e:
-                # This catches any unexpected errors in the retry loop itself
-                self.logger.error(f"Unexpected error in retry loop for {step_name}: {outer_e}", exc_info=True)
+            except KeyboardInterrupt:
+                # Handle user interruption gracefully
+                self.logger.warning(f"User interrupted execution of {step_name}")
                 return {
                     "status": "error",
                     "step_name": step_name,
-                    "error": str(outer_e),
-                    "message": f"Unexpected error in retry loop: {str(outer_e)}",
+                    "error": "user_interrupted",
+                    "message": f"User interrupted execution of {step_name}",
+                    "timestamp": datetime.now().isoformat()
+                }
+            except (SystemExit, MemoryError) as critical_e:
+                # Handle critical system errors that shouldn't be retried
+                self.logger.error(f"Critical system error in {step_name}: {critical_e}", exc_info=True)
+                return {
+                    "status": "error",
+                    "step_name": step_name,
+                    "error": str(critical_e),
+                    "message": f"Critical system error: {str(critical_e)}",
                     "timestamp": datetime.now().isoformat()
                 }
         
@@ -990,6 +1055,84 @@ class PhaseOneInterface:
             "message": f"Step {step_name} failed after {max_retries + 1} attempts",
             "timestamp": datetime.now().isoformat()
         }
+    
+    async def cleanup_workflow_state(self, operation_id: str) -> bool:
+        """
+        Remove workflow state for testing/cleanup purposes.
+        
+        Args:
+            operation_id: The operation ID to clean up
+            
+        Returns:
+            True if state was cleaned up, False if not found
+        """
+        try:
+            state_key = f"stepwise_phase_one:{operation_id}"
+            
+            # Check if state exists
+            state_entry = await self.phase_one._state_manager.get_state(state_key, "STATE")
+            if not state_entry:
+                self.logger.debug(f"No workflow state found for operation_id: {operation_id}")
+                return False
+            
+            # Remove the state
+            await self.phase_one._state_manager.delete_state(state_key, "STATE")
+            self.logger.info(f"Cleaned up workflow state for operation_id: {operation_id}")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error cleaning up workflow state for {operation_id}: {e}", exc_info=True)
+            return False
+    
+    async def reset_all_workflow_states(self) -> bool:
+        """
+        Reset all workflow states - for testing only.
+        
+        Returns:
+            True if successful, False otherwise
+        """
+        try:
+            # Get all workflow states
+            all_states = await self.phase_one._state_manager.get_all_states()
+            
+            workflow_keys = []
+            for key in all_states:
+                if key.startswith("stepwise_phase_one:"):
+                    workflow_keys.append(key)
+            
+            # Delete all workflow states
+            for key in workflow_keys:
+                await self.phase_one._state_manager.delete_state(key, "STATE")
+            
+            self.logger.info(f"Reset {len(workflow_keys)} workflow states")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error resetting workflow states: {e}", exc_info=True)
+            return False
+    
+    async def verify_clean_state(self) -> bool:
+        """
+        Verify no workflow states exist - for test verification.
+        
+        Returns:
+            True if no workflow states exist, False otherwise
+        """
+        try:
+            all_states = await self.phase_one._state_manager.get_all_states()
+            
+            workflow_keys = [key for key in all_states if key.startswith("stepwise_phase_one:")]
+            
+            if workflow_keys:
+                self.logger.warning(f"Found {len(workflow_keys)} workflow states still present: {workflow_keys}")
+                return False
+                
+            self.logger.debug("Verified clean state - no workflow states present")
+            return True
+            
+        except Exception as e:
+            self.logger.error(f"Error verifying clean state: {e}", exc_info=True)
+            return False
 
 class PhaseOneApp:
     """Application for running Phase One functionality."""
@@ -1119,6 +1262,10 @@ class PhaseOneApp:
         except Exception as e:
             logger.error(f"Error during resource initialization: {e}", exc_info=True)
             raise
+        
+        # Set up background processing thread for monitoring systems
+        logger.info("Setting up background processing thread")
+        self._setup_background_thread()
         
         # Initialize Minimal Phase Zero orchestrator 
         logger.info("Initializing Minimal Phase Zero orchestrator")
@@ -1253,121 +1400,70 @@ class PhaseOneApp:
         self._initialized = True
         logger.info("Phase One App setup complete")
         
+    def _setup_background_thread(self):
+        """Set up dedicated background thread for monitoring and processing."""
+        import threading
+        from resources.events.loop_management import EventLoopManager
+        
+        def background_worker():
+            """Background thread worker for monitoring systems."""
+            # Create dedicated event loop for background processing
+            background_loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(background_loop)
+            
+            # Register this as the background loop
+            EventLoopManager.set_background_loop(background_loop)
+            
+            logger.info(f"Started background processing thread with loop {id(background_loop)}")
+            
+            async def run_monitoring():
+                """Run monitoring systems in background thread."""
+                # Verify we're in the correct background loop context
+                current_loop = asyncio.get_running_loop()
+                expected_loop = EventLoopManager.get_background_loop()
+                
+                if current_loop != expected_loop:
+                    logger.error(f"Background monitoring in wrong loop context: {id(current_loop)} vs {id(expected_loop)}")
+                    raise RuntimeError("Background operations must stay in background loop")
+                
+                logger.info(f"Background monitoring starting in correct loop context: {id(current_loop)}")
+                
+                try:
+                    # Start circuit breaker monitoring
+                    if hasattr(self, 'circuit_registry'):
+                        await self.circuit_registry.start_monitoring()
+                    
+                    # Start system monitoring
+                    if hasattr(self, 'system_monitor'):
+                        # System monitor starts its own monitoring loop
+                        pass
+                    
+                    # Keep the background loop running
+                    while not getattr(self, '_shutdown_background', False):
+                        await asyncio.sleep(1)
+                        
+                except Exception as e:
+                    logger.error(f"Error in background monitoring: {e}", exc_info=True)
+                finally:
+                    logger.info("Background monitoring stopped")
+            
+            try:
+                background_loop.run_until_complete(run_monitoring())
+            except Exception as e:
+                logger.error(f"Background thread error: {e}", exc_info=True)
+            finally:
+                background_loop.close()
+                logger.info("Background thread terminated")
+        
+        # Start background thread
+        self._background_thread = threading.Thread(target=background_worker, daemon=True)
+        self._background_thread.start()
+        self._shutdown_background = False
+        
+        logger.info("Background processing thread started")
+    
     # REMOVED: check_events_queue method - was causing event loop switching issues
     # Event processing now handled by background thread architecture
-            
-            # Use cached event loop if available, otherwise create one
-            if not hasattr(self, '_persistent_loop') or self._persistent_loop is None or self._persistent_loop.is_closed():
-                # Only call ensure_event_loop if we don't have a valid cached loop
-                loop = ensure_event_loop()
-                self._persistent_loop = loop
-                logger.debug(f"Created new persistent event loop {id(loop)}")
-            else:
-                # Reuse existing cached loop
-                loop = self._persistent_loop
-                logger.debug(f"Reusing cached event loop {id(loop)}")
-            
-            # Log with clear thread context
-            current_thread_id = threading.get_ident()
-            is_main_thread = threading.current_thread() is threading.main_thread()
-            logger.debug(f"Using event loop {id(loop)} in {'main' if is_main_thread else 'worker'} thread {current_thread_id}")
-            
-            # Register the loop with EventLoopManager if we're in the main thread
-            if is_main_thread and not hasattr(self, '_loop_registered_as_primary'):
-                primary_loop = EventLoopManager.get_primary_loop()
-                
-                # If no primary loop exists or it's different than our current loop, set this as primary
-                if not primary_loop or id(primary_loop) != id(loop):
-                    result = EventLoopManager.set_primary_loop(loop)
-                    if result:
-                        self._loop_registered_as_primary = True
-                        logger.info(f"Registered loop {id(loop)} as primary in main thread {current_thread_id}")
-                else:
-                    # Already registered
-                    self._loop_registered_as_primary = True
-            
-            # Get a reference to the current loop
-            loop = self._persistent_loop
-            
-            # With our new implementation, the event queue has its own dedicated thread and loop
-            # We should NOT manually update its loop reference, as that will break the queue's processing
-            # The code below is commented out to prevent breaking the queue's dedicated thread/loop model
-            
-            # REMOVED: This was causing issues by forcing the event queue to use the main thread's loop
-            # when it should be using its own dedicated thread's loop
-            #if hasattr(self.event_queue, '_creation_loop_id'):
-            #    if self.event_queue._creation_loop_id != id(loop):
-            #        logger.warning(f"Fixing event queue loop reference from {self.event_queue._creation_loop_id} to {id(loop)}")
-            #        self.event_queue._creation_loop_id = id(loop)
-            #        self.event_queue._loop_thread_id = threading.get_ident()
-            
-            # Process events with enhanced error handling
-            while events_processed < max_events:
-                # Use get_nowait to avoid blocking the UI thread
-                try:
-                    # Ensure we're using the persistent loop
-                    asyncio.set_event_loop(self._persistent_loop)
-                    
-                    # Get event from queue with proper error handling
-                    try:
-                        event = self.event_queue.get_nowait()
-                    except (RuntimeError, AttributeError) as e:
-                        error_msg = str(e).lower()
-                        if "no running event loop" in error_msg or "has no attribute" in error_msg or "different event loop" in error_msg:
-                            # Handle issues with event loop
-                            logger.warning(f"Event loop issue detected: {error_msg}")
-                            # Only create new loop if current one is invalid
-                            if self._persistent_loop is None or self._persistent_loop.is_closed():
-                                loop = ensure_event_loop()
-                                self._persistent_loop = loop
-                                logger.debug(f"Created recovery event loop {id(loop)}")
-                            else:
-                                # Reuse existing valid loop
-                                loop = self._persistent_loop
-                                logger.debug(f"Reusing existing loop for recovery {id(loop)}")
-                            asyncio.set_event_loop(loop)
-                            
-                            # REMOVED: This was causing issues by forcing the event queue to use the main thread's loop
-                            # With our new implementation, the event queue has its own dedicated thread and loop
-                            # We should NOT manually update its loop reference
-                            # self.event_queue._creation_loop_id = id(loop)
-                            # self.event_queue._loop_thread_id = threading.get_ident()
-                            
-                            # Try one more time
-                            try:
-                                event = self.event_queue.get_nowait()
-                            except asyncio.QueueEmpty:
-                                # No events to process
-                                break
-                        else:
-                            raise
-                            
-                    if not event:
-                        break
-                        
-                    events_processed += 1
-                    # Process the event (simplified for testing)
-                    logger.debug(f"Processing event: {event.event_type}")
-                except asyncio.QueueEmpty:
-                    # No more events to process
-                    break
-                except Exception as e:
-                    logger.error(f"Error getting event: {e}")
-                    # Don't break immediately on error - continue to process events if possible
-                    if events_processed == 0:  # Only break if we haven't processed any events
-                        break
-                        
-            # Schedule another check if we processed the maximum number of events
-            # This ensures we continue processing if there are more events
-            # Use small delay to prevent tight loop and excessive event loop creation
-            if events_processed >= max_events:
-                QTimer.singleShot(5, self.check_events_queue)  # 5ms delay prevents tight loop
-                
-        except Exception as e:
-            logger.error(f"Event processing error: {e}", exc_info=True)
-            # Re-schedule event check after a short delay to recover from errors
-            QTimer.singleShot(100, self.check_events_queue)
-            
     def register_task(self, coro):
         """Register and track an asyncio task with improved event loop handling."""
         try:
@@ -1469,9 +1565,7 @@ class PhaseOneApp:
             if hasattr(self, 'main_window') and not self.main_window.isVisible():
                 self.main_window.show()
                 
-            # Make sure the event timer is running
-            if hasattr(self, 'event_timer') and not self.event_timer.isActive():
-                self.event_timer.start(100)
+            # Event processing handled by background thread - no timer needed
                 
             # Setup signal handlers
             self._setup_signal_handlers()
@@ -1561,9 +1655,11 @@ class PhaseOneApp:
         """Clean up resources in the correct sequence."""
         logger.info("Application shutdown initiated")
         
-        # Stop all timers
-        if hasattr(self, 'event_timer') and self.event_timer.isActive():
-            self.event_timer.stop()
+        # Stop background processing thread
+        if hasattr(self, '_background_thread') and self._background_thread.is_alive():
+            logger.info("Stopping background processing thread")
+            self._shutdown_background = True
+            self._background_thread.join(timeout=5.0)
             
         # Stop health check timer
         if hasattr(self, '_healthcheck_timer') and self._healthcheck_timer.isActive():

@@ -43,8 +43,15 @@ from resources.monitoring import SystemMonitor, SystemMonitorConfig, MemoryMonit
 
 logger = logging.getLogger(__name__)
 
+# Import qasync utilities for event loop compatibility
+try:
+    from resources.events.qasync_utils import qasync_wait_for
+except ImportError:
+    # Fallback if qasync_utils not available
+    qasync_wait_for = asyncio.wait_for
+
 def ensure_event_loop(context_name: str = "unknown") -> asyncio.AbstractEventLoop:
-    """Ensure there's a running event loop or create one.
+    """Ensure there's a running event loop or create one with qasync compatibility.
     
     Args:
         context_name: Name of the context for logging purposes
@@ -53,18 +60,24 @@ def ensure_event_loop(context_name: str = "unknown") -> asyncio.AbstractEventLoo
         The current event loop
     """
     try:
-        # Try to get the running loop
-        return asyncio.get_running_loop()
-    except RuntimeError:
-        # No running loop, try to get one
+        from resources.events.qasync_utils import get_qasync_compatible_loop
+        return get_qasync_compatible_loop()
+    except Exception as e:
+        logger.warning(f"Failed to get qasync-compatible loop in {context_name}: {e}")
+        # Fallback to traditional approach
         try:
-            return asyncio.get_event_loop()
+            # Try to get the running loop
+            return asyncio.get_running_loop()
         except RuntimeError:
-            # No event loop in this thread, create a new one
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            logger.info(f"Created new event loop in {context_name}")
-            return loop
+            # No running loop, try to get one
+            try:
+                return asyncio.get_event_loop()
+            except RuntimeError:
+                # No event loop in this thread, create a new one
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                logger.info(f"Created new event loop in {context_name}")
+                return loop
 
 class PrioritizedLockManager:
     """
@@ -192,7 +205,7 @@ class PrioritizedLockManager:
             
             # Execute the lock acquisition with timeout
             if timeout:
-                await asyncio.wait_for(_acquire_read_lock(), timeout=timeout)
+                await qasync_wait_for(_acquire_read_lock(), timeout=timeout)
             else:
                 await _acquire_read_lock()
                             
@@ -340,7 +353,7 @@ class PrioritizedLockManager:
             
             # Execute the lock acquisition operation
             if timeout:
-                result = await asyncio.wait_for(_acquire_write_lock(), timeout=timeout)
+                result = await qasync_wait_for(_acquire_write_lock(), timeout=timeout)
             else:
                 result = await _acquire_write_lock()
                 
@@ -624,11 +637,8 @@ class BaseManager(ABC):
             await self._memory_monitor.stop()
             await self._system_monitor.stop()
             
-            # Unregister from EventLoopManager
-            try:
-                EventLoopManager.unregister_resource(self.resource_id)
-            except Exception as e:
-                logger.warning(f"Error unregistering from EventLoopManager: {e}")
+            # Simplified cleanup - no need to unregister in simplified architecture
+            logger.debug(f"Resource {self.resource_id} cleanup complete")
                 
             # Mark as terminated
             with self._lock:
@@ -938,8 +948,8 @@ class BaseManager(ABC):
                 # Ensure there's a running event loop for wait_for
                 ensure_event_loop(f"_execute_protected for {operation}")
                 
-                # Wrap operation execution in asyncio.wait_for()
-                result = await asyncio.wait_for(func(), timeout=timeout_value)
+                # Wrap operation execution in qasync-compatible wait_for()
+                result = await qasync_wait_for(func(), timeout=timeout_value)
             except asyncio.TimeoutError:
                 # Convert to ResourceTimeoutError with detailed context
                 error = ResourceTimeoutError(
@@ -982,7 +992,7 @@ class BaseManager(ABC):
                 async with self._read_lock:
                     return await operation()
             
-            return await asyncio.wait_for(_execute_with_lock(), timeout=timeout_value)
+            return await qasync_wait_for(_execute_with_lock(), timeout=timeout_value)
         except asyncio.TimeoutError:
             raise ResourceTimeoutError(
                 resource_id=self.__class__.__name__.lower(),
@@ -1004,7 +1014,7 @@ class BaseManager(ABC):
                 async with self._write_lock:
                     return await operation()
             
-            return await asyncio.wait_for(_execute_with_lock(), timeout=timeout_value)
+            return await qasync_wait_for(_execute_with_lock(), timeout=timeout_value)
         except asyncio.TimeoutError:
             raise ResourceTimeoutError(
                 resource_id=self.__class__.__name__.lower(),
@@ -1063,12 +1073,11 @@ class BaseManager(ABC):
             force: If True, perform an aggressive cleanup regardless of policy
         """
         try:
-            logger.info(f"Starting cleanup for {self.__class__.__name__} (force={force})")
-            
-            # Unregister from EventLoopManager if registered
             component_id = self.__class__.__name__.lower()
-            # Use resource_id from BaseResource for consistency
-            EventLoopManager.unregister_resource(self.resource_id)
+            logger.info(f"Starting cleanup for {component_id} (force={force})")
+            
+            # Simplified cleanup - no need to unregister in simplified architecture
+            logger.debug(f"Component {component_id} cleanup complete")
             
             # Cancel any pending tasks if we track them
             if hasattr(self, '_tasks'):

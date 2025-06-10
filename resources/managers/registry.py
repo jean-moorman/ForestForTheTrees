@@ -6,6 +6,12 @@ import threading
 
 from resources.events import ResourceEventTypes, EventQueue
 
+# Import qasync utilities for event loop compatibility
+try:
+    from resources.events.qasync_utils import qasync_wait_for
+except ImportError:
+    qasync_wait_for = asyncio.wait_for
+
 logger = logging.getLogger(__name__)
 
 class CircuitBreakerRegistry:
@@ -380,15 +386,14 @@ class CircuitBreakerRegistry:
         # Wait for tasks to complete with timeout
         if self._tasks:
             try:
-                await asyncio.wait_for(
+                await qasync_wait_for(
                     asyncio.gather(*self._tasks, return_exceptions=True),
                     timeout=2.0
                 )
             except asyncio.TimeoutError:
                 logger.warning("Timeout waiting for circuit breaker tasks to cancel")
         
-        # Unregister from EventLoopManager
-        from resources.events import EventLoopManager
-        EventLoopManager.unregister_resource("circuit_breaker_registry")
+        # Simplified cleanup - no need to unregister in simplified architecture
+        logger.debug("CircuitBreakerRegistry cleanup complete")
         
         logger.info("CircuitBreakerRegistry stopped")

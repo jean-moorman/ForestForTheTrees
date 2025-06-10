@@ -9,6 +9,12 @@ import sys
 from resources.events import ResourceEventTypes, EventQueue
 from resources.managers.registry import CircuitBreakerRegistry
 
+# Import qasync utilities for event loop compatibility
+try:
+    from resources.events.qasync_utils import qasync_wait_for
+except ImportError:
+    qasync_wait_for = asyncio.wait_for
+
 logger = logging.getLogger(__name__)
 
 class ResourceCoordinator:
@@ -68,12 +74,9 @@ class ResourceCoordinator:
             loop = asyncio.get_event_loop()
             ThreadLocalEventLoopStorage.get_instance().set_loop(loop)
             
-            # Register with EventLoopManager using resource ID for proper lifecycle tracking
-            EventLoopManager.register_resource("resource_coordinator", self)
-            
-            # Mark as initialized at the very end, after all attributes are set
-            self._initialized = True
-            logger.debug("ResourceCoordinator initialized")
+            # Mark as created but NOT initialized - initialization happens in initialize_all()
+            self._initialized = False
+            logger.debug("ResourceCoordinator created (not yet initialized)")
         
     def register_manager(self, manager_id, manager, dependencies=None, optional_dependencies=None):
         """Register a resource manager with the coordinator with thread-safe dependency tracking.
@@ -124,54 +127,44 @@ class ResourceCoordinator:
         # Default initialization state
         self._initialization_state[manager_id] = "not_started"
         
-        # If we've already initialized, initialize this manager now in a thread-safe manner
+        # If we've already initialized, initialize this manager now using improved patterns
         if self._initialized:
-            # Use EventLoopManager to ensure proper thread context for task creation
-            from resources.events.loop_management import EventLoopManager
-            
             async def _delayed_init():
                 # Small delay to allow event loop to process other events
                 await asyncio.sleep(0.1)
                 await self._initialize_manager(manager_id)
             
-            # Use the coordinator's creation thread/loop for initialization
-            if hasattr(self, '_creation_thread_id'):
+            # Try to schedule delayed initialization with better error handling
+            try:
+                # First try to get the running loop
+                loop = asyncio.get_running_loop()
+                task = loop.create_task(_delayed_init())
+                logger.debug(f"Scheduled delayed initialization for {manager_id}")
+            except RuntimeError:
+                # No running loop - try to use the loop from EventLoopManager
                 try:
-                    loop = EventLoopManager.get_loop_for_thread(self._creation_thread_id)
-                    if loop:
-                        # Run in the correct thread context
-                        EventLoopManager.run_coroutine_threadsafe(_delayed_init(), target_loop=loop)
+                    from resources.events.loop_management import EventLoopManager
+                    loop = EventLoopManager.get_loop_for_thread()
+                    if loop and not loop.is_closed():
+                        # Use run_coroutine_threadsafe to schedule from a different context
+                        future = asyncio.run_coroutine_threadsafe(_delayed_init(), loop)
+                        logger.debug(f"Scheduled delayed initialization for {manager_id} via run_coroutine_threadsafe")
                     else:
-                        # Fallback to current thread if coordinator's thread not found
-                        asyncio.create_task(_delayed_init())
+                        logger.warning(f"No suitable event loop found for delayed initialization of {manager_id}")
                 except Exception as e:
-                    logger.error(f"Error scheduling manager initialization: {e}")
-                    # Fallback to current thread
-                    asyncio.create_task(_delayed_init())
-            else:
-                # No thread affinity information, use current thread
-                asyncio.create_task(_delayed_init())
+                    logger.warning(f"Could not schedule delayed initialization for {manager_id}: {e}")
+            except Exception as e:
+                logger.error(f"Unexpected error scheduling manager initialization for {manager_id}: {e}")
             
         logger.debug(f"Registered manager {manager_id} with ResourceCoordinator")
         
     async def initialize_all(self):
         """Initialize all registered managers in dependency order with thread boundary enforcement."""
-        # Verify thread affinity for thread safety
+        # Simplified thread handling - just proceed in current context
         current_thread_id = threading.get_ident()
         if hasattr(self, '_creation_thread_id') and current_thread_id != self._creation_thread_id:
-            logger.warning(f"initialize_all called from thread {current_thread_id}, but coordinator created in thread {self._creation_thread_id}")
-            
-            # Attempt to delegate to the correct thread if possible
-            from resources.events.loop_management import EventLoopManager
-            try:
-                loop = EventLoopManager.get_loop_for_thread(self._creation_thread_id)
-                if loop:
-                    logger.info(f"Delegating initialize_all to coordinator thread {self._creation_thread_id}")
-                    future = asyncio.run_coroutine_threadsafe(self.initialize_all(), loop)
-                    return await asyncio.wrap_future(future)
-            except Exception as e:
-                logger.error(f"Error delegating initialize_all to coordinator thread: {e}")
-                # Continue with current thread as fallback, but log the issue
+            logger.debug(f"initialize_all called from thread {current_thread_id}, coordinator created in thread {self._creation_thread_id}")
+            # Continue in current thread - the simplified architecture handles cross-thread coordination
         
         # Check if managers have already been initialized
         with self._lock:
@@ -593,22 +586,11 @@ class ResourceCoordinator:
         
     async def shutdown(self):
         """Shut down all resource managers in reverse initialization order with enhanced reliability and thread safety."""
-        # Verify thread affinity for thread safety
+        # Simplified thread handling - just proceed in current context
         current_thread_id = threading.get_ident()
         if hasattr(self, '_creation_thread_id') and current_thread_id != self._creation_thread_id:
-            logger.warning(f"shutdown called from thread {current_thread_id}, but coordinator created in thread {self._creation_thread_id}")
-            
-            # Attempt to delegate to the correct thread if possible
-            from resources.events.loop_management import EventLoopManager
-            try:
-                loop = EventLoopManager.get_loop_for_thread(self._creation_thread_id)
-                if loop:
-                    logger.info(f"Delegating shutdown to coordinator thread {self._creation_thread_id}")
-                    future = asyncio.run_coroutine_threadsafe(self.shutdown(), loop)
-                    return await asyncio.wrap_future(future)
-            except Exception as e:
-                logger.error(f"Error delegating shutdown to coordinator thread: {e}")
-                # Continue with current thread as fallback, but log the issue
+            logger.debug(f"shutdown called from thread {current_thread_id}, coordinator created in thread {self._creation_thread_id}")
+            # Continue in current thread - the simplified architecture handles cross-thread coordination
         
         # Check if already shutting down
         if self._shutting_down:
@@ -695,9 +677,8 @@ class ResourceCoordinator:
                 self._shutting_down = False
                 self._initialized = False
             
-            # Unregister from EventLoopManager
-            from resources.events.loop_management import EventLoopManager
-            EventLoopManager.unregister_resource("resource_coordinator")
+            # Simplified cleanup - no need to unregister in simplified architecture
+            logger.debug("ResourceCoordinator cleanup complete")
             
             # Explicitly stop circuit breaker registry
             if hasattr(self, '_circuit_registry'):
@@ -705,6 +686,7 @@ class ResourceCoordinator:
                 
         except Exception as e:
             logger.error(f"Error during final coordinator cleanup: {e}")
+        
         
     async def _shutdown_manager(self, manager_id):
         """Shutdown a specific manager with timeout, error handling, and thread boundary enforcement."""
@@ -714,40 +696,9 @@ class ResourceCoordinator:
             return False
             
         try:
-            # Check if manager has thread affinity
-            manager_thread_id = None
-            if hasattr(manager, '_thread_id'):
-                manager_thread_id = manager._thread_id
-            elif hasattr(manager, '_creation_thread_id'):
-                manager_thread_id = manager._creation_thread_id
-            
+            # Simplified: proceed with direct shutdown in current thread
             current_thread_id = threading.get_ident()
-            
-            # If manager has thread affinity and we're in wrong thread, try to delegate
-            if manager_thread_id and current_thread_id != manager_thread_id:
-                logger.debug(f"Manager {manager_id} has thread affinity to {manager_thread_id}, current thread is {current_thread_id}")
-                
-                from resources.events.loop_management import EventLoopManager
-                try:
-                    # Find the loop associated with manager's thread
-                    loop = EventLoopManager.get_loop_for_thread(manager_thread_id)
-                    if loop and loop.is_running():
-                        logger.info(f"Delegating shutdown of {manager_id} to its thread {manager_thread_id}")
-                        future = asyncio.run_coroutine_threadsafe(
-                            self._delegate_manager_shutdown(manager, manager_id), 
-                            loop
-                        )
-                        # Wait for the delegated shutdown to complete with timeout
-                        try:
-                            return await asyncio.wait_for(asyncio.wrap_future(future), timeout=12.0)
-                        except asyncio.TimeoutError:
-                            logger.warning(f"Timeout waiting for delegated shutdown of {manager_id}")
-                            return False
-                except Exception as e:
-                    logger.error(f"Error delegating shutdown of {manager_id} to its thread: {e}")
-                    # Continue with direct shutdown as fallback
-            
-            logger.debug(f"Shutting down manager {manager_id}")
+            logger.debug(f"Shutting down manager {manager_id} in thread {current_thread_id}")
             
             # Emit shutdown event
             try:
@@ -765,7 +716,7 @@ class ResourceCoordinator:
             # Check for stop/shutdown method with timeout
             if hasattr(manager, 'stop') and callable(manager.stop):
                 try:
-                    await asyncio.wait_for(manager.stop(), timeout=10.0)
+                    await qasync_wait_for(manager.stop(), timeout=10.0)
                 except asyncio.TimeoutError:
                     logger.warning(f"Timeout shutting down manager {manager_id}")
                 except Exception as e:
@@ -773,7 +724,7 @@ class ResourceCoordinator:
                     return False
             elif hasattr(manager, 'shutdown') and callable(manager.shutdown):
                 try:
-                    await asyncio.wait_for(manager.shutdown(), timeout=10.0)
+                    await qasync_wait_for(manager.shutdown(), timeout=10.0)
                 except asyncio.TimeoutError:
                     logger.warning(f"Timeout shutting down manager {manager_id}")
                 except Exception as e:

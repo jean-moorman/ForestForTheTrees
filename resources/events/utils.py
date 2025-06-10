@@ -16,6 +16,12 @@ import time
 from datetime import datetime
 from typing import Dict, Any, List, Optional, Callable, Awaitable, TypeVar, Union, Generic
 
+# Import qasync utilities for event loop compatibility
+try:
+    from .qasync_utils import qasync_wait_for
+except ImportError:
+    qasync_wait_for = asyncio.wait_for
+
 logger = logging.getLogger(__name__)
 
 # Type variable for return types
@@ -47,7 +53,7 @@ async def with_timeout(coro, timeout_seconds: float = 5.0, description: str = "o
         The result of the coroutine or None if timeout occurs
     """
     try:
-        return await asyncio.wait_for(coro, timeout=timeout_seconds)
+        return await qasync_wait_for(coro, timeout=timeout_seconds)
     except asyncio.TimeoutError:
         logger.warning(f"Timeout in {description} after {timeout_seconds}s")
         return None

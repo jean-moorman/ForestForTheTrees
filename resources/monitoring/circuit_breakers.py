@@ -17,6 +17,12 @@ from resources.common import CircuitBreakerConfig, HealthStatus, ResourceType
 from resources.errors import ResourceError, ResourceExhaustionError, ResourceTimeoutError
 from resources.events import ResourceEventTypes, EventQueue
 
+# Import qasync utilities for event loop compatibility
+try:
+    from resources.events.qasync_utils import qasync_wait_for
+except ImportError:
+    qasync_wait_for = asyncio.wait_for
+
 logger = logging.getLogger(__name__)
 
 class CircuitState(Enum):
@@ -1065,8 +1071,8 @@ class CircuitBreakerRegistry:
             self._running = True
         
         try:
-            from resources.events.utils import ensure_event_loop
-            loop = ensure_event_loop()
+            from resources.events.qasync_utils import get_qasync_compatible_loop
+            loop = get_qasync_compatible_loop()
             self._monitoring_task = loop.create_task(self._monitoring_loop())
             logger.info("Circuit breaker monitoring started")
         except Exception as e:
@@ -1088,7 +1094,7 @@ class CircuitBreakerRegistry:
         if monitoring_task and not monitoring_task.done():
             try:
                 monitoring_task.cancel()
-                await asyncio.wait_for(monitoring_task, timeout=2.0)
+                await qasync_wait_for(monitoring_task, timeout=2.0)
             except (asyncio.TimeoutError, asyncio.CancelledError):
                 logger.warning("Circuit breaker monitoring task cancellation timed out or was cancelled")
         

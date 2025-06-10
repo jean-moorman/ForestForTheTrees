@@ -109,14 +109,22 @@ class SimpleEventLoopRegistry:
             logger.info("Cleared all event loop references")
     
     def set_loop(self, loop_id_or_loop, loop=None) -> bool:
-        """Legacy compatibility method for setting loops - handles both parameter patterns."""
+        """Legacy compatibility method for setting loops - handles both parameter patterns with thread awareness."""
+        import threading
+        
         with self._lock:
             # Handle the case where only one argument is passed (just the loop)
             if loop is None:
-                # Only one argument passed, treat it as the loop and assume background
+                # Only one argument passed, treat it as the loop and use thread-aware logic
                 actual_loop = loop_id_or_loop
-                logger.debug(f"Legacy set_loop call with single parameter (loop {id(actual_loop)}), treating as background loop")
-                return self.set_background_loop(actual_loop)
+                current_thread = threading.current_thread()
+                
+                if current_thread is threading.main_thread():
+                    logger.debug(f"Legacy set_loop call with single parameter (loop {id(actual_loop)}) from main thread, treating as main loop")
+                    return self.set_main_loop(actual_loop)
+                else:
+                    logger.debug(f"Legacy set_loop call with single parameter (loop {id(actual_loop)}) from thread {threading.get_ident()}, treating as background loop")
+                    return self.set_background_loop(actual_loop)
             
             # Two arguments passed - traditional (loop_id, loop) pattern  
             loop_id = loop_id_or_loop
@@ -125,9 +133,14 @@ class SimpleEventLoopRegistry:
             elif loop_id == "background" or loop_id.startswith("background"):
                 return self.set_background_loop(loop)
             else:
-                # For unknown loop IDs, treat as background loops
-                logger.debug(f"Legacy set_loop call with unknown ID '{loop_id}', treating as background loop")
-                return self.set_background_loop(loop)
+                # For unknown loop IDs, use thread-aware logic
+                current_thread = threading.current_thread()
+                if current_thread is threading.main_thread():
+                    logger.debug(f"Legacy set_loop call with unknown ID '{loop_id}' from main thread, treating as main loop")
+                    return self.set_main_loop(loop)
+                else:
+                    logger.debug(f"Legacy set_loop call with unknown ID '{loop_id}' from thread {threading.get_ident()}, treating as background loop")
+                    return self.set_background_loop(loop)
 
 
 # Global registry instance
@@ -233,6 +246,24 @@ class EventLoopManager:
             return asyncio.run_coroutine_threadsafe(coro, target_loop)
     
     @staticmethod
+    def run_coroutine_threadsafe(coro, target_loop=None):
+        """
+        Compatibility method for legacy code - delegates to asyncio.run_coroutine_threadsafe.
+        
+        Args:
+            coro: Coroutine to execute
+            target_loop: Target event loop (if None, uses appropriate loop from registry)
+            
+        Returns:
+            Future that can be awaited
+        """
+        if target_loop is None:
+            # Use the simplified architecture to find appropriate loop
+            target_loop = EventLoopManager.get_loop_for_thread()
+        
+        return asyncio.run_coroutine_threadsafe(coro, target_loop)
+    
+    @staticmethod
     def ensure_event_loop() -> asyncio.AbstractEventLoop:
         """
         Simplified event loop creation.
@@ -309,7 +340,15 @@ class ThreadLocalEventLoopStorage:
         return _registry
     
     def set_loop(self, loop):
-        """Legacy compatibility method - takes just loop parameter."""
-        logger.debug(f"Legacy set_loop call with loop {id(loop)} - registering as background loop")
-        # Legacy code just passes the loop, so treat it as a background loop
-        return _registry.set_background_loop(loop)
+        """Legacy compatibility method - takes just loop parameter with thread-aware registration."""
+        import threading
+        current_thread = threading.current_thread()
+        
+        if current_thread is threading.main_thread():
+            # Main thread should use main loop registration
+            logger.debug(f"Legacy set_loop call with loop {id(loop)} from main thread - registering as main loop")
+            return _registry.set_main_loop(loop)
+        else:
+            # Non-main threads use background loop registration
+            logger.debug(f"Legacy set_loop call with loop {id(loop)} from thread {threading.get_ident()} - registering as background loop")
+            return _registry.set_background_loop(loop)

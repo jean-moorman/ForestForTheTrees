@@ -126,12 +126,16 @@ class AnthropicAPI:
                 })
             
             # Run the synchronous API call in a thread to avoid blocking the event loop
-            response = await asyncio.to_thread(
-                self.client.messages.create,
-                model=self.model,
-                max_tokens=max_tokens,
-                messages=messages,
-                system=system
+            # Use run_in_executor for qasync compatibility
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(
+                self._executor,
+                lambda: self.client.messages.create(
+                    model=self.model,
+                    max_tokens=max_tokens,
+                    messages=messages,
+                    system=system
+                )
             )
             
             if not response.content:
