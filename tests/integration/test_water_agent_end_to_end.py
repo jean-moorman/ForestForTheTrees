@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime, timedelta
 from typing import Dict, Any, List, Optional
 
-from tests_new.fixtures.water_agent_test_data import WaterAgentTestDataProvider
+from tests.fixtures.water_agent_test_data import WaterAgentTestDataProvider
 from resources.water_agent.context_manager import WaterAgentContextManager, CoordinationContext
 from phase_one.validation.coordination import SequentialAgentCoordinator
 from interfaces.agent.coordination import CoordinationInterface

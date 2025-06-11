@@ -18,8 +18,8 @@ from agent_validation import Validator, ValidationErrorAnalyzer, SemanticErrorHa
 from resources import EventQueue, StateManager
 
 # Import test infrastructure
-from tests_new.harness.validation_test_harness import ValidationTestHarness, ValidationScenarioResult
-from tests_new.doubles.testable_api import TestableAnthropicAPI
+from tests.harness.validation_test_harness import ValidationTestHarness, ValidationScenarioResult
+from tests.doubles.testable_api import TestableAnthropicAPI
 
 
 class TestValidationPipelineIntegration(unittest.TestCase):

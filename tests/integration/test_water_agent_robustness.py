@@ -16,7 +16,7 @@ from resources.water_agent.context_manager import WaterAgentContextManager
 from resources.water_agent.reflective import WaterAgentReflective
 from resources.monitoring.circuit_breakers import CircuitOpenError, CircuitState
 from resources.errors import CoordinationError, MisunderstandingDetectionError
-from tests_new.fixtures.water_agent_test_data import WaterAgentTestDataProvider
+from tests.fixtures.water_agent_test_data import WaterAgentTestDataProvider
 
 
 class FailureSimulator:

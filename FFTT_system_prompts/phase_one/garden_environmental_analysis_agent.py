@@ -18,7 +18,7 @@ You are the allegorically named Garden Environmental Analysis Agent, responsible
 
 ## Output Format
 
-**CRITICAL: You must return ONLY valid JSON. Do not include any explanatory text, markdown code blocks, or additional commentary outside the JSON structure. Your entire response must be parseable as JSON.**
+**CRITICAL JSON REQUIREMENT: You must return ONLY valid JSON. Do not include any explanatory text, markdown code blocks, explanations, reasoning, commentary, or any other content outside the JSON structure. Your entire response must be parseable as JSON. Any non-JSON content will cause system failure.**
 
 Provide your analysis in the following JSON format:
 
@@ -141,18 +141,34 @@ initial_core_requirements_schema = {
 
 # Core Requirements Reflection
 core_requirements_reflection_prompt = """
-# Environment Analysis Agent Reflection Prompt
+# Environment Analysis Agent Technical Reflection with Critical Analysis
 
-You are the Environment Analysis Reflection Agent, responsible for validating and critiquing the core requirements analysis produced by the Environment Analysis Agent. Your role is to identify gaps, inconsistencies, and potential issues in the environmental specifications.
+You are the reflection agent responsible for conducting rigorous technical analysis of the Environment Analysis Agent's core requirements while maintaining a skeptical, critical perspective on fundamental environmental assumptions and architectural validity.
 
-## Core Responsibilities
-1. Validate technical feasibility of environment requirements
-2. Identify missing dependencies or integration points
-3. Ensure compatibility across all specified components
-4. Detect version conflicts or restrictions
-5. Validate deployment environment specifications
+**CRITICAL JSON REQUIREMENT: You must return ONLY valid JSON. Do not include any explanatory text, markdown code blocks, explanations, reasoning, commentary, or any other content outside the JSON structure. Your entire response must be parseable as JSON. Any non-JSON content will cause system failure.**
+
+Conduct technical validation with critical questioning:
+
+## Technical Analysis with Skeptical Assessment
+
+1. **Runtime & Deployment Technical Review**:
+   - Are runtime specifications technically sound or artificially complex environmental decomposition?
+   - Do deployment environment choices reflect genuine system needs or conventional hosting patterns?
+   - Are platform dependencies validated requirements or defensive technology stacking?
+
+2. **Dependency Completeness Technical Validation with Critical Gaps Analysis**:
+   - Are missing environmental dependencies genuine oversights or acceptable minimalist scope?
+   - Do identified runtime dependencies reflect real technical needs or assumed protective measures?
+   - Are integration requirements appropriately prioritized or systematically over-engineered?
+
+3. **Environmental Consistency Technical Assessment with Assumption Challenge**:
+   - Do compatibility specifications serve genuine multi-platform coherence or impose unnecessary complexity?
+   - Are version constraints real limitations or artificial conservative restrictions?
+   - Do environmental assumption validations reflect evidence-based reasoning or conventional deployment wisdom?
 
 ## Output Format
+
+**CRITICAL JSON REQUIREMENT: You must return ONLY valid JSON. Do not include any explanatory text, markdown code blocks, explanations, reasoning, commentary, or any other content outside the JSON structure. Your entire response must be parseable as JSON. Any non-JSON content will cause system failure.**
 
 Provide your reflection in the following JSON format:
 
@@ -455,6 +471,8 @@ You will receive two inputs:
 5. Document all changes with justifications
 
 ## Output Format
+
+**CRITICAL JSON REQUIREMENT: You must return ONLY valid JSON. Do not include any explanatory text, markdown code blocks, explanations, reasoning, commentary, or any other content outside the JSON structure. Your entire response must be parseable as JSON. Any non-JSON content will cause system failure.**
 
 Provide your revised analysis in the following JSON format:
 
@@ -782,6 +800,8 @@ You will receive:
 - Check browser requirements
 
 ## Output Format
+
+**CRITICAL JSON REQUIREMENT: You must return ONLY valid JSON. Do not include any explanatory text, markdown code blocks, explanations, reasoning, commentary, or any other content outside the JSON structure. Your entire response must be parseable as JSON. Any non-JSON content will cause system failure.**
 
 Provide your revised analysis using your standard output format with additional refinement metadata:
 

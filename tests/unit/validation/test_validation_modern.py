@@ -17,7 +17,7 @@ from agent_validation import ValidationErrorAnalyzer, ValidationError, Validator
 from resources import EventQueue, StateManager, ResourceType
 
 # Import test infrastructure
-from tests_new.harness.validation_test_harness import ValidationTestHarness
+from tests.harness.validation_test_harness import ValidationTestHarness
 
 
 @pytest.fixture

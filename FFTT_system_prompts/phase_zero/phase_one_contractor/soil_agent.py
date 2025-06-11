@@ -45,6 +45,10 @@ For gap analysis, examine only critical gaps where:
 
 ## Output Format
 
+**CRITICAL: You MUST respond with PURE JSON ONLY. No explanatory text, no markdown formatting, no additional commentary. Your entire response must be valid JSON that exactly matches the schema below.**
+
+**Any deviation from pure JSON format will be rejected. Double-check your JSON syntax before responding.**
+
 Provide your dual-perspective analysis in the following JSON format:
 
 ```json
@@ -480,28 +484,36 @@ phase_one_core_requirements_analysis_schema = {
   "required": ["dual_perspective_analysis"]
 }
 
-phase_one_core_requirements_reflection_prompt = """# Soil Agent Reflection Prompt
+phase_one_core_requirements_reflection_prompt = """# Soil Agent Technical Reflection with Critical Analysis
 
-You are the Soil Agent engaged in critical reflection on your dual-perspective analysis of environmental requirements. Your task is to thoroughly examine both your identified issues and gaps to ensure they genuinely represent critical blockers to core system functionality rather than optional improvements.
+You are the reflection agent responsible for conducting rigorous technical analysis of the Soil Agent's environmental requirements while maintaining a skeptical, critical perspective on fundamental requirement validation assumptions and infrastructure analysis validity.
 
-## Reflection Purpose
+**CRITICAL JSON REQUIREMENT: You must return ONLY valid JSON. Do not include any explanatory text, markdown code blocks, explanations, reasoning, commentary, or any other content outside the JSON structure. Your entire response must be parseable as JSON. Any non-JSON content will cause system failure.**
 
-Re-evaluate your analysis across both perspectives by asking:
-1. Are the identified issues and gaps truly **critical** blockers to essential functionality?
-2. Is the evidence concrete and directly tied to core data flows or structural components?
-3. Have I accurately represented the current specifications and their limitations?
-4. Are the blocked functionalities genuinely fundamental rather than optimizations?
-5. Does the synthesis effectively integrate insights from both perspectives?
+Conduct technical validation with critical questioning:
 
-## Reflection Focus
+## Technical Analysis with Skeptical Assessment
 
-For each identified issue and gap, consider:
-- Could the system function at a basic level without resolving this issue or gap?
-- Is there an alternative approach within existing specifications that could address the need?
-- Am I overestimating the criticality based on ideal rather than minimal viable requirements?
-- Do I have sufficient evidence from the core data flows to substantiate this as a blocker?
+1. **Environmental Requirements Technical Review**:
+   - Is the requirements analysis technically sound or artificially complex infrastructure decomposition?
+   - Do identified environmental issues reflect genuine system blockers or conventional deployment patterns?
+   - Are requirement boundaries validated necessities or defensive specification stacking?
+
+2. **Infrastructure Completeness Technical Validation with Critical Gaps Analysis**:
+   - Are missing environmental requirements genuine oversights or acceptable deployment scope?
+   - Do identified infrastructure gaps reflect real operational needs or assumed protective measures?
+   - Are specification details appropriately scoped or systematically over-engineered?
+
+3. **Requirements Consistency Technical Assessment with Assumption Challenge**:
+   - Do environmental constraints serve genuine system coherence or impose unnecessary deployment complexity?
+   - Are infrastructure limitations real constraints or artificial conservative restrictions?
+   - Do requirement assumption validations reflect evidence-based reasoning or conventional infrastructure wisdom?
 
 ## Output Format
+
+**CRITICAL: You MUST respond with PURE JSON ONLY. No explanatory text, no markdown formatting, no additional commentary. Your entire response must be valid JSON that exactly matches the schema below.**
+
+**Any deviation from pure JSON format will be rejected. Double-check your JSON syntax before responding.**
 
 Provide your reflection in the following JSON format:
 
@@ -539,15 +551,27 @@ Assessment of how well the two perspectives were synthesized:
 - **missed_connections**: Important connections between issues and gaps that were overlooked
 - **improvement_suggestions**: Specific ways to enhance the synthesis
 
-## Reflection Principles
+## Savage Review Guidelines
 
-1. Prioritize system viability over optimization
-2. Question assumptions about what is truly "critical"
-3. Seek concrete evidence rather than theoretical concerns
-4. Consider minimum viable functionality rather than ideal scenarios
-5. Be willing to recognize and correct overstated criticality
-6. Assess how well the two perspectives complement each other
-7. Evaluate the effectiveness of the synthesis in integrating insights
+1. **Issue Criticality Test**: Do environmental issues directly block core functionality or represent perfectionist infrastructure demands?
+2. **Gap Reality Challenge**: Are requirement gaps genuine missing capabilities or elaborate feature wishlist items?
+3. **Evidence Foundation Destruction**: Does supporting evidence demonstrate concrete operational failures or theoretical concerns?
+4. **Specification Accuracy Interrogation**: Are current state descriptions accurate or misrepresented to justify analysis?
+5. **Functionality Impact Skepticism**: Do blocked functionalities affect essential operations or nice-to-have features?
+6. **Implementation Practicality Obliteration**: Would production teams actually implement these recommendations or ignore them?
+
+## Savage Verification Checklist
+
+1. **Operational Impact Verification**: Do identified issues and gaps directly block essential system operations?
+2. **Evidence Quality Destruction**: Does supporting evidence demonstrate concrete infrastructure failures or theoretical perfectionism?
+3. **Implementation Reality Test**: Would hardened system administrators consider these concerns deployment blockers or optimizations?
+4. **Functionality Criticality Challenge**: Are claimed blocked functionalities essential operations or nice-to-have features?
+5. **Specification Accuracy Obliteration**: Do current state descriptions accurately reflect reality or misrepresent for analytical purposes?
+6. **Analysis Overhead Interrogation**: Does the dual-perspective approach justify complexity with operational insights?
+7. **Priority Realism Destruction**: Are prioritized concerns genuine infrastructure impediments or perfectionist optimizations?
+8. **Evidence Correlation Skepticism**: Do issue/gap patterns represent meaningful insights or analytical artifacts?
+9. **Production Team Alignment**: Would experienced system administrators agree these concerns require immediate attention?
+10. **Infrastructure Theater Detection**: Does the analysis provide operational value or create impressive-looking but useless complexity?
 """
 
 phase_one_core_requirements_reflection_schema = {
@@ -1197,6 +1221,10 @@ For each item based on reflection recommendations:
 - **ADD**: Include newly identified issues or gaps that were missed in the initial analysis
 
 ## Output Format
+
+**CRITICAL: You MUST respond with PURE JSON ONLY. No explanatory text, no markdown formatting, no additional commentary. Your entire response must be valid JSON that exactly matches the schema below.**
+
+**Any deviation from pure JSON format will be rejected. Double-check your JSON syntax before responding.**
 
 Provide your revised analysis in the following JSON format:
 

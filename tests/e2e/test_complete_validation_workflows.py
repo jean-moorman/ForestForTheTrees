@@ -18,7 +18,7 @@ from agent import Agent
 from resources import EventQueue, StateManager, AgentContextManager, CacheManager, MetricsManager, ErrorHandler
 
 # Import test infrastructure
-from tests_new.harness.validation_test_harness import ValidationTestHarness, create_test_schema_with_constraints, create_complex_nested_schema
+from tests.harness.validation_test_harness import ValidationTestHarness, create_test_schema_with_constraints, create_complex_nested_schema
 
 
 @pytest.mark.skipif(not os.getenv("ANTHROPIC_API_KEY"), reason="API key required for E2E tests")

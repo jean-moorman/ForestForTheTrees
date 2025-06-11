@@ -10,17 +10,17 @@ import asyncio
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from tests_new.fixtures.lightweight_fixtures import (
+from tests.fixtures.lightweight_fixtures import (
     lightweight_water_coordinator,
     lightweight_agent_pair,
     lightweight_coordination_scenario,
     mock_prompt_responses
 )
-from tests_new.fixtures.async_fixtures import (
+from tests.fixtures.async_fixtures import (
     coordination_infrastructure,
     async_context_manager
 )
-from tests_new.fixtures.robustness_fixtures import (
+from tests.fixtures.robustness_fixtures import (
     failure_simulator,
     mock_circuit_breaker,
     robustness_test_environment
@@ -45,7 +45,7 @@ class TestCircularImportFixes:
     def test_sequential_coordinator_initialization(self):
         """Test that SequentialAgentCoordinator can be created without circular imports."""
         from phase_one.validation.coordination import SequentialAgentCoordinator
-        from tests_new.fixtures.async_fixtures import minimal_event_queue, minimal_state_manager
+        from tests.fixtures.async_fixtures import minimal_event_queue, minimal_state_manager
         
         # Create minimal dependencies
         event_queue = AsyncMock()
@@ -421,7 +421,7 @@ class TestQualityValidation:
         
         # Create and destroy some fixtures
         for _ in range(10):
-            from tests_new.fixtures.lightweight_fixtures import LightweightTestAgent
+            from tests.fixtures.lightweight_fixtures import LightweightTestAgent
             agent = LightweightTestAgent("test_memory", "test")
             del agent
         

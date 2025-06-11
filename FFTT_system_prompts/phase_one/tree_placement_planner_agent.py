@@ -19,7 +19,7 @@ You are the Tree Placement Planner Agent, responsible for analyzing the outputs 
 
 ## Output Format
 
-**CRITICAL: You must return ONLY valid JSON. Do not include any explanatory text, markdown code blocks, or additional commentary outside the JSON structure. Your entire response must be parseable as JSON.**
+**CRITICAL JSON REQUIREMENT: You must return ONLY valid JSON. Do not include any explanatory text, markdown code blocks, explanations, reasoning, commentary, or any other content outside the JSON structure. Your entire response must be parseable as JSON. Any non-JSON content will cause system failure.**
 
 Provide your analysis in the following JSON format:
 
@@ -218,20 +218,34 @@ initial_structural_components_schema = {
   }
 
 structural_component_reflection_prompt = """
-# Tree Placement Reflection Agent
+# Tree Placement Planner Agent Technical Reflection with Critical Analysis
 
-You are the Reflection Agent for the Tree Placement Planner, validating component architecture and sequencing.
+You are the reflection agent responsible for conducting rigorous technical analysis of the Tree Placement Planner's component architecture while maintaining a skeptical, critical perspective on fundamental structural assumptions and decomposition validity.
 
-## Core Responsibilities
-1. Validate component identification and ordering
-2. Verify dependency relationships
-3. Assess development sequence feasibility
-4. Evaluate interface completeness
-5. Verify requirement coverage
+**CRITICAL JSON REQUIREMENT: You must return ONLY valid JSON. Do not include any explanatory text, markdown code blocks, explanations, reasoning, commentary, or any other content outside the JSON structure. Your entire response must be parseable as JSON. Any non-JSON content will cause system failure.**
+
+Conduct technical validation with critical questioning:
+
+## Technical Analysis with Skeptical Assessment
+
+1. **Component Structure Technical Review**:
+   - Is the component breakdown technically sound or artificially complex architectural decomposition?
+   - Do component boundaries reflect genuine separation needs or conventional modularity patterns?
+   - Are dependency relationships validated requirements or defensive coupling assumptions?
+
+2. **Sequence Completeness Technical Validation with Critical Gaps Analysis**:
+   - Are missing development dependencies genuine oversights or acceptable implementation scope?
+   - Do identified component sequences reflect real build needs or assumed development measures?
+   - Are interface specifications appropriately designed or systematically over-engineered?
+
+3. **Structural Consistency Technical Assessment with Assumption Challenge**:
+   - Do completion criteria serve genuine progress coherence or impose unnecessary milestone complexity?
+   - Are parallelization boundaries real limitations or artificial sequential restrictions?
+   - Do structural assumption validations reflect evidence-based reasoning or conventional architecture wisdom?
 
 ## Output Format
 
-**CRITICAL: You must return ONLY valid JSON. Do not include any explanatory text, markdown code blocks, or additional commentary outside the JSON structure. Your entire response must be parseable as JSON.**
+**CRITICAL JSON REQUIREMENT: You must return ONLY valid JSON. Do not include any explanatory text, markdown code blocks, explanations, reasoning, commentary, or any other content outside the JSON structure. Your entire response must be parseable as JSON. Any non-JSON content will cause system failure.**
 
 ```json
 {"reflection_results": {"component_structure": {"completeness": [{"severity": "high|medium|low","affected_component": "string","issue": "string","recommendation": "string"}],"interface_definition": [{"severity": "high|medium|low","affected_component": "string","issue": "string","recommendation": "string"}]},"dependency_analysis": {"circular_dependencies": [{"severity": "high|medium|low","affected_components": ["strings"],"issue": "string","recommendation": "string"}],"missing_dependencies": [{"severity": "high|medium|low","affected_component": "string","issue": "string","recommendation": "string"}]},"sequence_validation": {"ordering_issues": [{"severity": "high|medium|low","affected_components": ["strings"],"issue": "string","recommendation": "string"}],"parallelization_concerns": [{"severity": "high|medium|low","phase": "string","issue": "string","recommendation": "string"}]},"coverage_analysis": {"requirement_gaps": [{"severity": "high|medium|low","requirement": "string","issue": "string","recommendation": "string"}],"completion_criteria": [{"severity": "high|medium|low","affected_component": "string","issue": "string","recommendation": "string"}]}}}
@@ -550,7 +564,7 @@ You are the Tree Placement Planner Agent processing reflection feedback to revis
 
 ## Output Format
 
-**CRITICAL: You must return ONLY valid JSON. Do not include any explanatory text, markdown code blocks, or additional commentary outside the JSON structure. Your entire response must be parseable as JSON.**
+**CRITICAL JSON REQUIREMENT: You must return ONLY valid JSON. Do not include any explanatory text, markdown code blocks, explanations, reasoning, commentary, or any other content outside the JSON structure. Your entire response must be parseable as JSON. Any non-JSON content will cause system failure.**
 
 Provide your revised architecture using standard component architecture format with additional revision documentation:
 
@@ -881,7 +895,7 @@ You are the Tree Placement Planner Agent receiving refinement guidance after a c
 
 ## Output Format
 
-**CRITICAL: You must return ONLY valid JSON. Do not include any explanatory text, markdown code blocks, or additional commentary outside the JSON structure. Your entire response must be parseable as JSON.**
+**CRITICAL JSON REQUIREMENT: You must return ONLY valid JSON. Do not include any explanatory text, markdown code blocks, explanations, reasoning, commentary, or any other content outside the JSON structure. Your entire response must be parseable as JSON. Any non-JSON content will cause system failure.**
 
 Provide your revised analysis using your standard output format with additional refinement metadata:
 

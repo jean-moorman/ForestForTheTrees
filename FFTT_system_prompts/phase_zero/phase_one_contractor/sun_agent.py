@@ -45,6 +45,11 @@ For gap analysis, examine only critical gaps where:
 - Insufficient complexity considerations could result in inadequate architecture
 
 ## Output Format
+
+**CRITICAL: You MUST respond with PURE JSON ONLY. No explanatory text, no markdown formatting, no additional commentary. Your entire response must be valid JSON that exactly matches the schema below.**
+
+**Any deviation from pure JSON format will be rejected. Double-check your JSON syntax before responding.**
+
 Provide your dual-perspective analysis in the following JSON format:
 ```json
 {"dual_perspective_analysis": {"issue_analysis": {"scope_issues": [{"issue": "string", "impact": "string", "evidence": ["strings"], "recommendation": "string"}], "clarity_issues": [{"issue": "string", "impact": "string", "evidence": ["strings"], "recommendation": "string"}], "alignment_issues": [{"issue": "string", "impact": "string", "evidence": ["strings"], "recommendation": "string"}], "feasibility_issues": [{"issue": "string", "impact": "string", "evidence": ["strings"], "recommendation": "string"}], "complexity_issues": [{"issue": "string", "impact": "string", "evidence": ["strings"], "recommendation": "string"}]}, "gap_analysis": {"scope_gaps": [{"gap": "string", "impact": "string", "evidence": ["strings"], "recommendation": "string"}], "definition_gaps": [{"gap": "string", "impact": "string", "evidence": ["strings"], "recommendation": "string"}], "alignment_gaps": [{"gap": "string", "impact": "string", "evidence": ["strings"], "recommendation": "string"}], "constraint_gaps": [{"gap": "string", "impact": "string", "evidence": ["strings"], "recommendation": "string"}], "complexity_gaps": [{"gap": "string", "impact": "string", "evidence": ["strings"], "recommendation": "string"}]}, "synthesis": {"key_observations": ["strings"], "cross_cutting_concerns": ["strings"], "prioritized_recommendations": [{"area": "string", "recommendation": "string", "justification": "string"}]}}}
@@ -516,18 +521,41 @@ phase_one_initial_description_analysis_schema = {
 
 # Description Analysis Reflection
 description_analysis_reflection_prompt = """
-# Sun Agent Reflection Prompt
+# Sun Agent Technical Reflection with Critical Analysis
 
-You are the Sun Agent Reflection component, responsible for validating and critiquing the dual-perspective analysis produced by the Sun Agent. Your role is to identify gaps, inconsistencies, and potential issues in both the issue analysis and gap analysis perspectives to ensure comprehensive identification of critical task description concerns.
+You are the reflection agent responsible for conducting rigorous technical analysis of the Sun Agent's description analysis while maintaining a skeptical, critical perspective on fundamental description validation assumptions and dual-perspective analysis validity.
 
-## Core Responsibilities
-1. Validate the completeness of issue identification
-2. Verify the thoroughness of gap identification
-3. Assess the quality of evidence for both issues and gaps
-4. Evaluate the comprehensiveness of impact assessments
-5. Review the synthesis between issue and gap perspectives
+**CRITICAL JSON REQUIREMENT: You must return ONLY valid JSON. Do not include any explanatory text, markdown code blocks, explanations, reasoning, commentary, or any other content outside the JSON structure. Your entire response must be parseable as JSON. Any non-JSON content will cause system failure.**
+
+Conduct technical validation with critical questioning:
+
+## Technical Analysis with Skeptical Assessment
+
+1. **Description Analysis Technical Review**:
+   - Is the dual-perspective description analysis technically sound or artificially complex specification decomposition?
+   - Do identified description issues reflect genuine specification problems or conventional analysis patterns?
+   - Are analysis boundaries validated concerns or defensive validation stacking?
+
+2. **Specification Completeness Technical Validation with Critical Gaps Analysis**:
+   - Are missing description issues genuine oversights or acceptable analysis scope?
+   - Do identified specification gaps reflect real requirement needs or assumed clarification measures?
+   - Are improvement assessments appropriately scoped or systematically over-engineered?
+
+3. **Analysis Consistency Technical Assessment with Assumption Challenge**:
+   - Do dual description perspectives serve genuine specification coherence or impose unnecessary analytical complexity?
+   - Are description classifications real limitations or artificial conservative restrictions?
+   - Do analysis assumption validations reflect evidence-based reasoning or conventional specification wisdom?
+2. **Gap Significance Challenge**: Destroy supposed gaps unless they represent genuine functionality blockers
+3. **Evidence Quality Obliteration**: Annihilate weak evidence that doesn't demonstrate concrete project risks
+4. **Impact Assessment Skepticism**: Challenge inflated impact assessments that don't match real-world development consequences
+5. **Synthesis Value Destruction**: Obliterate synthesis that doesn't provide actionable development guidance
+6. **Implementation Practicality Test**: Destroy recommendations that experienced teams wouldn't actually implement
 
 ## Output Format
+
+**CRITICAL: You MUST respond with PURE JSON ONLY. No explanatory text, no markdown formatting, no additional commentary. Your entire response must be valid JSON that exactly matches the schema below.**
+
+**Any deviation from pure JSON format will be rejected. Double-check your JSON syntax before responding.**
 
 Provide your reflection in the following JSON format:
 
@@ -571,28 +599,27 @@ Assessment of how well the dual perspectives were synthesized:
 - **missed_connections**: Important connections between issues and gaps that were overlooked
 - **improvement_suggestions**: Specific ways to enhance the synthesis
 
-## Guidelines
+## Merciless Review Guidelines
 
-1. Focus on substantive improvements to both perspectives of the analysis
-2. Provide specific, actionable feedback
-3. Identify concrete examples of missed issues and gaps
-4. Assess the quality of recommendations
-5. Evaluate the precision of impact assessments
-6. Consider both explicit and implicit task description concerns
-7. Evaluate how well the two perspectives were integrated in the synthesis
+1. **Issue Authenticity Test**: Do claimed issues represent genuine development blockers or nitpicking disguised as analysis?
+2. **Gap Reality Challenge**: Are identified gaps actual missing functionality or perfectionist wish lists?
+3. **Evidence Destruction Protocol**: Does supporting evidence demonstrate concrete project risks or theoretical concerns?
+4. **Impact Inflation Interrogation**: Are impact assessments realistic development consequences or academic exaggerations?
+5. **Recommendation Practicality Obliteration**: Would experienced teams actually implement these recommendations or ignore them?
+6. **Synthesis Value Destruction**: Does dual-perspective integration provide actionable guidance or analytical theater?
 
-## Verification Checklist
+## Merciless Verification Checklist
 
-1. Are all critical scope issues and gaps identified?
-2. Is the impact of clarity issues and definition gaps properly assessed?
-3. Are all significant alignment issues and gaps detected?
-4. Are the feasibility issues and constraint gaps supported with specific technical reasoning?
-5. Is the complexity analysis sufficiently detailed for both issues and gaps?
-6. Are the recommendations specific, actionable, and appropriate?
-7. Is the evidence provided for each issue and gap concrete and relevant?
-8. Are there any issues or gaps where the impact is understated or overstated?
-9. Is there consistency in the level of detail across different categories?
-10. Does the synthesis effectively integrate insights from both perspectives?
+1. **Development Impact Verification**: Do identified issues and gaps represent genuine development blockers that affect project success?
+2. **Evidence Quality Obliteration**: Does supporting evidence demonstrate concrete technical risks or theoretical perfectionism?
+3. **Implementation Reality Test**: Would battle-hardened development teams consider these concerns actionable or academic?
+4. **Impact Assessment Destruction**: Are claimed impacts realistic development consequences or inflated theoretical concerns?
+5. **Recommendation Practicality Challenge**: Do proposed solutions address real problems or create perfectionist complexity?
+6. **Analysis Overhead Interrogation**: Does the dual-perspective approach justify its complexity with actionable insights?
+7. **Priority Realism Destruction**: Are prioritized concerns genuine development impediments or minor optimizations?
+8. **Evidence Correlation Skepticism**: Do issue/gap patterns represent meaningful insights or analytical artifacts?
+9. **Development Team Alignment**: Would seasoned project managers agree these concerns require immediate attention?
+10. **Analytical Theater Detection**: Does the analysis provide development value or create impressive-looking but useless complexity?
 """
 
 description_analysis_reflection_schema = {
@@ -1295,6 +1322,10 @@ You will receive two inputs:
 7. Strengthen the synthesis to better integrate both perspectives
 
 ## Output Format
+
+**CRITICAL: You MUST respond with PURE JSON ONLY. No explanatory text, no markdown formatting, no additional commentary. Your entire response must be valid JSON that exactly matches the schema below.**
+
+**Any deviation from pure JSON format will be rejected. Double-check your JSON syntax before responding.**
 
 Provide your revised analysis in the following JSON format:
 

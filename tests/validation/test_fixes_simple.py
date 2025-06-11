@@ -111,7 +111,7 @@ class TestLightweightComponents:
     
     def test_lightweight_agent_creation(self):
         """Test that lightweight test agents can be created."""
-        from tests_new.fixtures.lightweight_fixtures import LightweightTestAgent
+        from tests.fixtures.lightweight_fixtures import LightweightTestAgent
         
         agent = LightweightTestAgent("test_agent", "garden_planner")
         
@@ -122,7 +122,7 @@ class TestLightweightComponents:
     @pytest.mark.asyncio
     async def test_lightweight_agent_clarification(self):
         """Test that lightweight agents can provide clarifications."""
-        from tests_new.fixtures.lightweight_fixtures import LightweightTestAgent
+        from tests.fixtures.lightweight_fixtures import LightweightTestAgent
         
         agent = LightweightTestAgent("test_agent", "garden_planner")
         
@@ -136,7 +136,7 @@ class TestLightweightComponents:
     
     def test_failure_simulator_creation(self):
         """Test that failure simulator can be created and configured."""
-        from tests_new.fixtures.robustness_fixtures import FailureSimulator
+        from tests.fixtures.robustness_fixtures import FailureSimulator
         
         simulator = FailureSimulator()
         
@@ -147,7 +147,7 @@ class TestLightweightComponents:
     @pytest.mark.asyncio
     async def test_failure_simulator_basic_operations(self):
         """Test that failure simulator can simulate basic failures."""
-        from tests_new.fixtures.robustness_fixtures import FailureSimulator
+        from tests.fixtures.robustness_fixtures import FailureSimulator
         
         simulator = FailureSimulator()
         
@@ -184,7 +184,7 @@ class TestAsyncInfrastructure:
     @pytest.mark.asyncio
     async def test_async_context_pattern(self):
         """Test async context management pattern."""
-        from tests_new.fixtures.async_fixtures import AsyncContextManager
+        from tests.fixtures.async_fixtures import AsyncContextManager
         
         async with AsyncContextManager() as ctx:
             # Should be able to use context manager
@@ -217,7 +217,7 @@ class TestComponentIntegration:
     
     def test_mock_circuit_breaker_functionality(self):
         """Test mock circuit breaker basic functionality."""
-        from tests_new.fixtures.robustness_fixtures import MockCircuitBreaker
+        from tests.fixtures.robustness_fixtures import MockCircuitBreaker
         from resources.monitoring.circuit_breakers import CircuitState
         
         circuit = MockCircuitBreaker("test_circuit", failure_threshold=2)
@@ -230,7 +230,7 @@ class TestComponentIntegration:
     @pytest.mark.asyncio
     async def test_mock_circuit_breaker_behavior(self):
         """Test mock circuit breaker failure behavior."""
-        from tests_new.fixtures.robustness_fixtures import MockCircuitBreaker
+        from tests.fixtures.robustness_fixtures import MockCircuitBreaker
         from resources.monitoring.circuit_breakers import CircuitState, CircuitOpenError
         
         circuit = MockCircuitBreaker("test_circuit", failure_threshold=2)
@@ -262,7 +262,7 @@ class TestComponentIntegration:
     
     def test_mock_prompt_response_factory(self):
         """Test mock prompt response factory."""
-        from tests_new.fixtures.lightweight_fixtures import MockPromptResponse
+        from tests.fixtures.lightweight_fixtures import MockPromptResponse
         
         # Test misunderstanding detection response
         response = MockPromptResponse.misunderstanding_detection(
@@ -335,7 +335,7 @@ class TestOverallStability:
         # Create and destroy objects
         objects_created = []
         for i in range(10):
-            from tests_new.fixtures.lightweight_fixtures import LightweightTestAgent
+            from tests.fixtures.lightweight_fixtures import LightweightTestAgent
             agent = LightweightTestAgent(f"agent_{i}", "test")
             objects_created.append(agent)
         

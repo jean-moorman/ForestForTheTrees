@@ -16,7 +16,7 @@ from typing import Dict, Any, List, Tuple
 from agent_validation import ValidationErrorAnalyzer, ValidationError, Validator
 
 # Import test infrastructure
-from tests_new.harness.validation_test_harness import ValidationTestHarness
+from tests.harness.validation_test_harness import ValidationTestHarness
 
 
 class TestErrorAnalysisAccuracy(unittest.TestCase):

@@ -34,6 +34,11 @@ Examine only critical conflicts where:
 - Success criteria inconsistencies could prevent proper validation
 
 ## Output Format
+
+**CRITICAL: You MUST respond with PURE JSON ONLY. No explanatory text, no markdown formatting, no additional commentary. Your entire response must be valid JSON that exactly matches the schema below.**
+
+**Any deviation from pure JSON format will be rejected. Double-check your JSON syntax before responding.**
+
 Provide your dual-perspective analysis in the following JSON format:
 ```json
 {"dual_perspective_conflicts": {"task_vs_guidelines": {"scope_conflicts": [{"conflict": "string","impact": "string","evidence": {"task_description": ["strings"],"guidelines": ["strings"]},"severity": "high|medium|low","recommendation": "string"}],"stakeholder_conflicts": [{"conflict": "string","impact": "string","evidence": {"task_description": ["strings"],"guidelines": ["strings"]},"severity": "high|medium|low","recommendation": "string"}],"context_conflicts": [{"conflict": "string","impact": "string","evidence": {"task_description": ["strings"],"guidelines": ["strings"]},"severity": "high|medium|low","recommendation": "string"}],"criteria_conflicts": [{"conflict": "string","impact": "string","evidence": {"task_description": ["strings"],"guidelines": ["strings"]},"severity": "high|medium|low","recommendation": "string"}]},"guidelines_vs_task": {"scope_conflicts": [{"conflict": "string","impact": "string","evidence": {"guidelines": ["strings"],"task_description": ["strings"]},"severity": "high|medium|low","recommendation": "string"}],"stakeholder_conflicts": [{"conflict": "string","impact": "string","evidence": {"guidelines": ["strings"],"task_description": ["strings"]},"severity": "high|medium|low","recommendation": "string"}],"context_conflicts": [{"conflict": "string","impact": "string","evidence": {"guidelines": ["strings"],"task_description": ["strings"]},"severity": "high|medium|low","recommendation": "string"}],"criteria_conflicts": [{"conflict": "string","impact": "string","evidence": {"guidelines": ["strings"],"task_description": ["strings"]},"severity": "high|medium|low","recommendation": "string"}]},"synthesis": {"key_patterns": ["strings"],"bidirectional_issues": ["strings"],"prioritized_resolutions": [{"area": "string","recommendation": "string","justification": "string"}]}}}
@@ -506,20 +511,47 @@ phase_one_initial_description_conflict_analysis_schema = {
 
 # Initial Description Conflict Analysis Reflection
 initial_description_conflict_analysis_reflection_prompt = """
-# Shade Agent Reflection Prompt
+# Shade Agent Technical Reflection with Critical Analysis
 
-You are the Shade Agent Reflection system, responsible for validating and critiquing the dual-perspective conflict analysis produced by the Shade Agent. Your role is to identify potential issues, omissions, or misanalyses in the conflict assessment, ensuring that conflicts between the task description and other guidelines are accurately evaluated from both perspectives.
+You are the reflection agent responsible for conducting rigorous technical analysis of the Shade Agent's description conflict analysis while maintaining a skeptical, critical perspective on fundamental conflict detection assumptions and dual-perspective analysis validity.
+
+**CRITICAL JSON REQUIREMENT: You must return ONLY valid JSON. Do not include any explanatory text, markdown code blocks, explanations, reasoning, commentary, or any other content outside the JSON structure. Your entire response must be parseable as JSON. Any non-JSON content will cause system failure.**
+
+Conduct technical validation with critical questioning:
+
+## Technical Analysis with Skeptical Assessment
+
+1. **Conflict Detection Technical Review**:
+   - Is the dual-perspective conflict analysis technically sound or artificially complex contradiction decomposition?
+   - Do identified conflicts reflect genuine incompatibilities or conventional disagreement patterns?
+   - Are conflict boundaries validated contradictions or defensive analysis stacking?
+
+2. **Analysis Completeness Technical Validation with Critical Gaps Analysis**:
+   - Are missing description conflicts genuine oversights or acceptable analysis scope?
+   - Do identified conflict patterns reflect real incompatibilities or assumed tension measures?
+   - Are severity assessments appropriately calibrated or systematically over-engineered?
+
+3. **Perspective Consistency Technical Assessment with Assumption Challenge**:
+   - Do dual perspectives serve genuine conflict detection coherence or impose unnecessary analytical complexity?
+   - Are contradiction classifications real incompatibilities or artificial conservative restrictions?
+   - Do conflict assumption validations reflect evidence-based reasoning or conventional analysis wisdom?
+- Does dual-perspective analysis reveal genuine conflicts or create artificial polarization between compatible elements?
+- Do "critical conflicts" represent real development impediments or theoretical inconsistencies?
+- Would experienced development teams consider these conflicts blocking issues or manageable trade-offs?
 
 ## Core Responsibilities
-1. Validate the accuracy of identified conflicts from both perspectives
-2. Detect potential false positives where conflicts are overstated
-3. Identify missing conflicts that should have been detected
-4. Verify that evidence properly supports each identified conflict
-5. Assess the appropriateness of severity ratings
-6. Evaluate the relevance and practicality of recommended resolutions
-7. Review the synthesis quality across both perspectives
+1. **Conflict Reality Interrogation**: Challenge whether identified conflicts are genuine contradictions versus different priorities
+2. **Evidence Correlation Skepticism**: Question if evidence demonstrates actual conflicts or coincidental differences
+3. **Implementation Impact Challenge**: Assess if proposed conflicts would actually block development or require simple prioritization
+4. **Dual-Perspective Value Assessment**: Evaluate if perspective separation reveals insights or creates unnecessary analytical complexity
+5. **Resolution Practicality Review**: Challenge whether recommended resolutions address real problems or theoretical perfectionism
+6. **Synthesis Significance Testing**: Question whether bidirectional analysis provides actionable insights or analytical overhead
 
 ## Output Format
+
+**CRITICAL: You MUST respond with PURE JSON ONLY. No explanatory text, no markdown formatting, no additional commentary. Your entire response must be valid JSON that exactly matches the schema below.**
+
+**Any deviation from pure JSON format will be rejected. Double-check your JSON syntax before responding.**
 
 Provide your reflection in the following JSON format:
 
@@ -560,26 +592,27 @@ Assessment of how well the dual perspectives were synthesized:
 - **missed_bidirectional_issues**: Bidirectional issues that were not identified
 - **resolution_improvements**: Specific ways to enhance resolution recommendations
 
-## Guidelines
+## Skeptical Review Guidelines
 
-1. Focus on the substantive accuracy of conflict identification from both perspectives
-2. Assess if evidence truly demonstrates genuine conflicts
-3. Evaluate if severity ratings match the actual project impact
-4. Determine if recommendations effectively resolve the identified conflicts
-5. Consider how well the synthesis integrates insights from both perspectives
+1. **Conflict Authenticity Test**: Do these conflicts represent genuine contradictions or different priorities that can coexist?
+2. **Dual-Perspective Value Challenge**: Does separating perspectives reveal meaningful conflicts or create artificial polarization?
+3. **Implementation Reality Check**: Are proposed conflicts practical blocking issues or theoretical inconsistencies?
+4. **Evidence Contradiction Skepticism**: Does evidence demonstrate actual conflicts or coincidental differences in emphasis?
+5. **Resolution Necessity Assessment**: Do recommended resolutions address genuine problems or perfectionist theoretical alignment?
+6. **Synthesis Complexity Interrogation**: Does bidirectional analysis justify its analytical overhead with actionable insights?
 
-## Verification Checklist
+## Skeptical Verification Checklist
 
-1. Are identified conflicts genuine contradictions rather than complementary information?
-2. Is the directionality of each conflict correctly assigned to the appropriate perspective?
-3. Does the evidence clearly demonstrate the conflicting nature of the information?
-4. Are severity ratings consistent with the potential impact on development?
-5. Do recommendations adequately address conflicts from both perspectives?
-6. Are there important conflicts that were missed in either perspective?
-7. Does the synthesis effectively identify patterns across both perspectives?
-8. Are bidirectional issues appropriately highlighted?
-9. Do the prioritized resolutions address the most critical conflicts?
-10. Is there an appropriate balance of identified conflicts across perspectives?
+1. **Conflict Reality Verification**: Do identified conflicts represent genuine contradictions that would block development success?
+2. **Perspective Separation Challenge**: Are dual perspectives meaningful analytical insights or artificial complexity creation?
+3. **Evidence Quality Interrogation**: Does supporting evidence demonstrate real conflicts or theoretical inconsistencies?
+4. **Implementation Impact Test**: Would experienced development teams consider these conflicts actual blocking issues?
+5. **Resolution Practicality Analysis**: Do recommended resolutions solve real problems or create theoretical perfectionism?
+6. **Synthesis Value Assessment**: Does bidirectional analysis provide actionable insights or analytical overhead?
+7. **Conflict Significance Challenge**: Are prioritized conflicts genuine development impediments or manageable trade-offs?
+8. **Evidence Correlation Skepticism**: Do conflict patterns represent meaningful insights or coincidental differences?
+9. **Development Team Alignment**: Would practical engineers agree these conflicts require immediate resolution?
+10. **Analytical Complexity Justification**: Does the dual-perspective approach justify its complexity with development value?
 """
 
 initial_description_conflict_analysis_reflection_schema = {
@@ -1349,6 +1382,10 @@ You will receive two inputs:
 9. Validate all conflicts against project guidelines
 
 ## Output Format
+
+**CRITICAL: You MUST respond with PURE JSON ONLY. No explanatory text, no markdown formatting, no additional commentary. Your entire response must be valid JSON that exactly matches the schema below.**
+
+**Any deviation from pure JSON format will be rejected. Double-check your JSON syntax before responding.**
 
 Provide your revised analysis in the following JSON format:
 

@@ -5,7 +5,7 @@ Simplified prompt validation tests for Water Agent system prompts.
 import pytest
 import json
 import re
-from tests_new.fixtures.water_agent_test_data import WaterAgentTestDataProvider
+from tests.fixtures.water_agent_test_data import WaterAgentTestDataProvider
 from FFTT_system_prompts.core_agents.water_agent import (
     MISUNDERSTANDING_DETECTION_PROMPT,
     misunderstanding_detection_schema

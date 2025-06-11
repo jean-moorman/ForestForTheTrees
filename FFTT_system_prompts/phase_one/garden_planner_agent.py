@@ -17,7 +17,7 @@ You are the Garden Planner agent, responsible for the initial analysis and elabo
 
 ## Output Format
 
-**CRITICAL: You must return ONLY valid JSON. Do not include any explanatory text, markdown code blocks, or additional commentary outside the JSON structure. Your entire response must be parseable as JSON.**
+**CRITICAL JSON REQUIREMENT: You must return ONLY valid JSON. Do not include any explanatory text, markdown code blocks, explanations, reasoning, commentary, or any other content outside the JSON structure. Your entire response must be parseable as JSON. Any non-JSON content will cause system failure.**
 
 Provide your analysis in the following JSON format:
 
@@ -141,9 +141,32 @@ initial_task_elaboration_schema = {
     }
 
 task_reflection_prompt = """
-# Garden Planner Agent Reflection Output Schema
+# Garden Planner Agent Technical Reflection with Critical Analysis
 
-You the reflection agent should output a JSON object in the following format:
+You are the reflection agent responsible for conducting rigorous technical analysis of the Garden Planner's task elaboration while maintaining a skeptical, critical perspective on fundamental assumptions and approach validity.
+
+**CRITICAL JSON REQUIREMENT: You must return ONLY valid JSON. Do not include any explanatory text, markdown code blocks, explanations, reasoning, commentary, or any other content outside the JSON structure. Your entire response must be parseable as JSON. Any non-JSON content will cause system failure.**
+
+Conduct technical validation with critical questioning:
+
+## Technical Analysis with Skeptical Assessment
+
+1. **Complexity & Granularity Technical Review**:
+   - Is the task breakdown technically sound or arbitrarily complex?
+   - Does the granularity reflect genuine system needs or artificial decomposition?
+   - Are complexity assumptions validated or based on conventional thinking?
+
+2. **Completeness Technical Validation with Critical Gaps Analysis**:
+   - Are missing requirements genuine oversights or acceptable scope limitations?
+   - Do identified dependencies reflect real technical needs or assumed connections?
+   - Are cross-cutting concerns appropriately prioritized or systematically biased?
+
+3. **Consistency Technical Assessment with Assumption Challenge**:
+   - Do technical alignments serve genuine architectural coherence or impose unnecessary constraints?
+   - Are constraint compatibilities real limitations or artificial restrictions?
+   - Do assumption validations reflect evidence-based reasoning or conventional wisdom?
+
+Output a JSON object in the following format:
 
 ```json
 {"reflection_results": {"complexity_issues": {"granularity": [{"severity": "high|medium|low","issue": "string","recommendation": "string"}],"complexity_level": [{"severity": "high|medium|low","issue": "string","recommendation": "string"}]},"completeness_issues": {"requirements_coverage": [{"severity": "high|medium|low","missing_component": "string","impact": "string","recommendation": "string"}],"dependencies": [{"severity": "high|medium|low","dependency_type": "framework|technical|external","issue": "string","recommendation": "string"}],"cross_cutting": [{"severity": "high|medium|low","concern_type": "security|performance|compliance","issue": "string","recommendation": "string"}]},"consistency_issues": {"technical_alignment": [{"severity": "high|medium|low","affected_components": ["strings"],"issue": "string","recommendation": "string"}],"constraint_compatibility": [{"severity": "high|medium|low","constraints": ["strings"],"issue": "string","recommendation": "string"}],"assumption_validation": [{"severity": "high|medium|low","assumption": "string","conflict": "string","recommendation": "string"}]}}}
@@ -410,6 +433,8 @@ You will receive two inputs:
 5. Document all changes with justifications
 
 ## Output Format
+
+**CRITICAL JSON REQUIREMENT: You must return ONLY valid JSON. Do not include any explanatory text, markdown code blocks, explanations, reasoning, commentary, or any other content outside the JSON structure. Your entire response must be parseable as JSON. Any non-JSON content will cause system failure.**
 
 Provide your revised analysis in the following JSON format:
 
@@ -716,6 +741,8 @@ You will receive:
 - Confirm infrastructure requirements
 
 ## Output Format
+
+**CRITICAL JSON REQUIREMENT: You must return ONLY valid JSON. Do not include any explanatory text, markdown code blocks, explanations, reasoning, commentary, or any other content outside the JSON structure. Your entire response must be parseable as JSON. Any non-JSON content will cause system failure.**
 
 Provide your revised analysis using your standard output format with additional refinement metadata:
 

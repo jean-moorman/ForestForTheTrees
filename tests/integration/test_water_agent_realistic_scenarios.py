@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from datetime import datetime
 from typing import Dict, Any, List
 
-from tests_new.fixtures.water_agent_test_data import (
+from tests.fixtures.water_agent_test_data import (
     WaterAgentTestDataProvider, 
     CoordinationTestScenario,
     MisunderstandingType

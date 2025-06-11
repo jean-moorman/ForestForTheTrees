@@ -12,7 +12,7 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 from typing import Dict, Any, List
 
-from tests_new.fixtures.water_agent_test_data import WaterAgentTestDataProvider
+from tests.fixtures.water_agent_test_data import WaterAgentTestDataProvider
 from FFTT_system_prompts.core_agents.water_agent import (
     MISUNDERSTANDING_DETECTION_PROMPT,
     WATER_AGENT_REFLECTION_PROMPT,

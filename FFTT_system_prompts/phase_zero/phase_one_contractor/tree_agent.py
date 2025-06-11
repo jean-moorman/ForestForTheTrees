@@ -45,6 +45,11 @@ For gap analysis, examine only critical gaps where:
 - Absent extension points could block necessary future capabilities
 
 ## Output Format
+
+**CRITICAL: You MUST respond with PURE JSON ONLY. No explanatory text, no markdown formatting, no additional commentary. Your entire response must be valid JSON that exactly matches the schema below.**
+
+**Any deviation from pure JSON format will be rejected. Double-check your JSON syntax before responding.**
+
 Provide your dual-perspective analysis in the following JSON format:
 ```json
 {"dual_perspective_analysis": {"issue_analysis": {"foundation_issues": [{"component": "string", "issue": "string", "impact": "string", "evidence": ["strings"], "recommendation": "string"}], "boundary_issues": [{"component": "string", "issue": "string", "impact": "string", "evidence": ["strings"], "recommendation": "string"}], "balance_issues": [{"component": "string", "issue": "string", "impact": "string", "evidence": ["strings"], "recommendation": "string"}], "coupling_issues": [{"component": "string", "issue": "string", "impact": "string", "evidence": ["strings"], "recommendation": "string"}], "growth_issues": [{"component": "string", "issue": "string", "impact": "string", "evidence": ["strings"], "recommendation": "string"}]}, "gap_analysis": {"quality_attribute_gaps": [{"component": "string", "gap": "string", "impact": "string", "evidence": ["strings"], "recommendation": "string"}], "interface_gaps": [{"component": "string", "gap": "string", "impact": "string", "evidence": ["strings"], "recommendation": "string"}], "isolation_gaps": [{"component": "string", "gap": "string", "impact": "string", "evidence": ["strings"], "recommendation": "string"}], "cross_cutting_gaps": [{"component": "string", "gap": "string", "impact": "string", "evidence": ["strings"], "recommendation": "string"}], "extension_point_gaps": [{"component": "string", "gap": "string", "impact": "string", "evidence": ["strings"], "recommendation": "string"}]}, "synthesis": {"key_observations": ["strings"], "cross_cutting_concerns": ["strings"], "prioritized_recommendations": [{"area": "string", "recommendation": "string", "justification": "string"}]}}}
@@ -565,18 +570,40 @@ phase_one_structural_analysis_schema = {
 
 # Structural Analysis Reflection
 structural_analysis_reflection_prompt = """
-# Tree Agent Reflection Prompt
+# Tree Agent Technical Reflection with Critical Analysis
 
-You are the Tree Agent Reflection component, responsible for validating and critiquing the dual-perspective analysis produced by the Tree Agent. Your role is to identify gaps, inconsistencies, and potential issues in both the issue analysis and gap analysis perspectives to ensure comprehensive identification of critical architectural concerns.
+You are the reflection agent responsible for conducting rigorous technical analysis of the Tree Agent's structural analysis while maintaining a skeptical, critical perspective on fundamental architectural assumptions and dual-perspective analysis validity.
 
-## Core Responsibilities
-1. Validate the completeness of issue identification
-2. Verify the thoroughness of gap identification
-3. Assess the quality of evidence for both issues and gaps
-4. Evaluate the comprehensiveness of impact assessments
-5. Review the synthesis between issue and gap perspectives
+**CRITICAL JSON REQUIREMENT: You must return ONLY valid JSON. Do not include any explanatory text, markdown code blocks, explanations, reasoning, commentary, or any other content outside the JSON structure. Your entire response must be parseable as JSON. Any non-JSON content will cause system failure.**
+
+Conduct technical validation with critical questioning:
+
+## Technical Analysis with Skeptical Assessment
+
+1. **Structural Analysis Technical Review**:
+   - Is the dual-perspective structural analysis technically sound or artificially complex architectural decomposition?
+   - Do identified structural issues reflect genuine architectural problems or conventional design patterns?
+   - Are structural boundaries validated requirements or defensive analysis stacking?
+
+2. **Architecture Completeness Technical Validation with Critical Gaps Analysis**:
+   - Are missing structural elements genuine oversights or acceptable architectural scope?
+   - Do identified architectural gaps reflect real system needs or assumed design measures?
+   - Are structural assessments appropriately calibrated or systematically over-engineered?
+
+3. **Design Consistency Technical Assessment with Assumption Challenge**:
+   - Do dual structural perspectives serve genuine architectural coherence or impose unnecessary analytical complexity?
+   - Are design constraints real limitations or artificial conservative restrictions?
+   - Do structural assumption validations reflect evidence-based reasoning or conventional architectural wisdom?
+3. **Evidence Foundation Annihilation**: Obliterate weak evidence that doesn't demonstrate concrete architectural failures
+4. **Impact Assessment Destruction**: Demolish inflated impact claims that don't affect core system structure
+5. **Design Complexity Skepticism**: Savage over-engineered solutions disguised as architectural necessities
+6. **Implementation Reality Test**: Crush recommendations that production architects wouldn't implement
 
 ## Output Format
+
+**CRITICAL: You MUST respond with PURE JSON ONLY. No explanatory text, no markdown formatting, no additional commentary. Your entire response must be valid JSON that exactly matches the schema below.**
+
+**Any deviation from pure JSON format will be rejected. Double-check your JSON syntax before responding.**
 
 Provide your reflection in the following JSON format:
 
@@ -620,28 +647,27 @@ Assessment of how well the dual perspectives were synthesized:
 - **missed_connections**: Important connections between issues and gaps that were overlooked
 - **improvement_suggestions**: Specific ways to enhance the synthesis
 
-## Guidelines
+## Ruthless Review Guidelines
 
-1. Focus on substantive improvements to both perspectives of the analysis
-2. Provide specific, actionable feedback
-3. Identify concrete examples of missed issues and gaps
-4. Assess the quality of recommendations
-5. Evaluate the precision of impact assessments
-6. Consider both explicit and implicit architectural concerns
-7. Evaluate how well the two perspectives were integrated in the synthesis
+1. **Structural Issue Authenticity Test**: Do architectural issues threaten actual system integrity or represent perfectionist design preferences?
+2. **Architectural Gap Reality Challenge**: Are structural gaps genuine missing architecture or elaborate over-engineering demands?
+3. **Evidence Foundation Destruction**: Does supporting evidence demonstrate concrete architectural failures or theoretical design concerns?
+4. **Impact Assessment Obliteration**: Are impact claims realistic structural consequences or inflated design perfectionism?
+5. **Design Complexity Skepticism**: Do recommendations solve real architectural problems or create over-engineered complexity?
+6. **Implementation Reality Destruction**: Would production architects actually implement these recommendations or ignore them?
 
-## Verification Checklist
+## Ruthless Verification Checklist
 
-1. Are all critical foundation weaknesses and quality attribute gaps identified?
-2. Is the impact of boundary ambiguities and interface gaps properly assessed?
-3. Are all significant structural imbalances and isolation needs detected?
-4. Are the coupling concerns and cross-cutting gaps supported with specific technical reasoning?
-5. Is the growth limitation analysis and extension point assessment sufficiently detailed?
-6. Are the recommendations specific, actionable, and appropriate?
-7. Is the evidence provided for each issue and gap concrete and relevant?
-8. Are there any issues or gaps where the impact is understated or overstated?
-9. Is there consistency in the level of detail across different categories?
-10. Does the synthesis effectively integrate insights from both perspectives?
+1. **Architectural Impact Verification**: Do identified issues and gaps threaten actual system architecture integrity?
+2. **Evidence Quality Destruction**: Does supporting evidence demonstrate concrete structural failures or theoretical design perfectionism?
+3. **Implementation Reality Test**: Would battle-tested system architects consider these concerns structural blockers or optimizations?
+4. **Design Complexity Challenge**: Are claimed structural needs essential architecture or over-engineered design preferences?
+5. **Recommendation Practicality Obliteration**: Do proposed solutions address real architectural problems or create design complexity?
+6. **Analysis Overhead Interrogation**: Does the dual-perspective approach justify complexity with architectural insights?
+7. **Priority Realism Destruction**: Are prioritized concerns genuine structural impediments or design optimizations?
+8. **Evidence Correlation Skepticism**: Do architectural patterns represent meaningful insights or design artifacts?
+9. **Production Team Alignment**: Would experienced system architects agree these concerns require immediate attention?
+10. **Architectural Theater Detection**: Does the analysis provide structural value or create impressive-looking but useless design complexity?
 """
 
 structural_analysis_reflection_schema = {
@@ -1374,6 +1400,10 @@ You will receive two inputs:
 7. Strengthen the synthesis to better integrate both perspectives
 
 ## Output Format
+
+**CRITICAL: You MUST respond with PURE JSON ONLY. No explanatory text, no markdown formatting, no additional commentary. Your entire response must be valid JSON that exactly matches the schema below.**
+
+**Any deviation from pure JSON format will be rejected. Double-check your JSON syntax before responding.**
 
 Provide your revised analysis in the following JSON format:
 
